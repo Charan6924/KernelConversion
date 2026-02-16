@@ -14,6 +14,7 @@ class TestDataset(Dataset):
         self.sharp_dir = os.path.join(root_dir, "testB")
         self.preload = preload
         np.random.seed(seed)
+        #woof
         
         print("Finding volume pairs...")
         self.volume_pairs = self._find_volume_pairs()
