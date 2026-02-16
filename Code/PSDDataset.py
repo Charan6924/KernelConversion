@@ -9,17 +9,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 def compute_psd_batch_gpu(image_batch, device):
-    """
-    Compute PSD for a batch of images on GPU.
-    This should be called IN THE TRAINING LOOP, not in collate_fn.
-    
-    Args:
-        image_batch: Tensor of shape (B, C, H, W) already on GPU
-        device: Device to compute on
-    
-    Returns:
-        psd: Normalized PSD tensor of shape (B, C, H, W)
-    """
     if image_batch.device.type != device:
         image_batch = image_batch.to(device)
     
@@ -44,16 +33,6 @@ def compute_psd_batch_gpu(image_batch, device):
 class PSDDataset(Dataset):
     def __init__(self, root_dir, min_slice_percentile=0.1, max_slice_percentile=0.9,
                  preload=True, seed=42):
-        """
-        Dataset that returns images only. PSD computation is done separately on GPU batches.
-        
-        Args:
-            root_dir: Root directory containing trainA and trainB
-            min_slice_percentile: Minimum slice percentile to use
-            max_slice_percentile: Maximum slice percentile to use
-            preload: Whether to preload all volumes into memory
-            seed: Random seed for reproducibility
-        """
         self.smooth_dir = os.path.join(root_dir, "trainA")
         self.sharp_dir = os.path.join(root_dir, "trainB")
         self.min_percentile = min_slice_percentile
@@ -78,6 +57,13 @@ class PSDDataset(Dataset):
         if self.preload and self.volume_cache:
             total_bytes = sum(v.nbytes for v in self.volume_cache.values())
             print(f"Memory usage: {total_bytes / (1024**3):.2f} GB")
+        
+        self.volume_to_indices = {}
+        for i, info in enumerate(self.slice_data):
+            path = info['smooth_path']
+            if path not in self.volume_to_indices:
+                self.volume_to_indices[path] = []
+            self.volume_to_indices[path].append(i)
 
     def _find_volume_pairs(self):
         smooth_files = sorted([f for f in os.listdir(self.smooth_dir) 
@@ -115,7 +101,6 @@ class PSDDataset(Dataset):
         return cache
 
     def _build_slice_index(self, volume_pairs):
-        """Build index of all valid slices"""
         slice_data = []
         
         for sfile, shfile in tqdm(volume_pairs, desc="Indexing slices"):
@@ -144,7 +129,6 @@ class PSDDataset(Dataset):
         return slice_data
 
     def _get_volume(self, path):
-        """Get volume from cache or load on-demand"""
         if path in self.volume_cache:
             return self.volume_cache[path]
         
@@ -154,44 +138,15 @@ class PSDDataset(Dataset):
         return vol
 
     def __getitem__(self, idx):
-        """
-        Returns only the images. PSD will be computed on GPU after batching.
-        
-        Returns:
-            I_smooth: Normalized smooth image (1, H, W)
-            I_sharp: Normalized sharp image (1, H, W)
-        """
-        info = self.slice_data[idx]
-        
-        vol_s = self._get_volume(info['smooth_path'])
-        vol_h = self._get_volume(info['sharp_path'])
-        img_s = vol_s[:, :, info['slice_idx']].copy()
-        img_h = vol_h[:, :, info['slice_idx']].copy()
-
-        #img_s = (img_s - img_s.min()) / (img_s.max() - img_s.min() + 1e-8)
-        #img_h = (img_h - img_h.min()) / (img_h.max() - img_h.min() + 1e-8)
-        img_s = np.clip(img_s,-1000,3000)
-        img_h = np.clip(img_h,-1000,3000)
-        img_s = (img_s + 1000) / (4000)
-        img_h = (img_h + 1000) / (4000)
-
-        I_smooth_1 = torch.from_numpy(img_s).unsqueeze(0).float()
-        I_sharp_1 = torch.from_numpy(img_h).unsqueeze(0).float()
-        
-        idx_2 = np.random.randint(0, len(self.slice_data))
+        I_smooth_1, I_sharp_1 = self._get_slice_pair(idx)
+        current_vol_path = self.slice_data[idx]['smooth_path']
+        available_indices = self.volume_to_indices[current_vol_path]
+        idx_2 = np.random.choice(available_indices)
         I_smooth_2, I_sharp_2 = self._get_slice_pair(idx_2)
         
         return I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2
+    
     def _get_slice_pair(self, idx):
-        """
-        Get a pair of smooth and sharp images for a given index.
-        
-        Args:
-            idx: Index into slice_data
-            
-        Returns:
-            tuple: (I_smooth, I_sharp) - normalized image tensors
-        """
         info = self.slice_data[idx]
         
         vol_s = self._get_volume(info['smooth_path'])
