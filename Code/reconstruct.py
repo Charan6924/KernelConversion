@@ -55,12 +55,10 @@ def reconstruct_volume(sample, model, device, output_dir):
     for k in range(num_slices):
         s_slice = data_smooth[:, :, k].copy()
         h_slice = data_sharp[:, :, k].copy()
-        s_min, s_max = s_slice.min(), s_slice.max()
-        h_min, h_max = h_slice.min(), h_slice.max()
-        s_range = s_max - s_min
-        h_range = h_max - h_min
-        s_slice_norm = (s_slice - s_min) / (s_range + 1e-8)
-        h_slice_norm = (h_slice - h_min) / (h_range + 1e-8)
+        s_slice = np.clip(s_slice, -1000, 3000)  # ADD THIS
+        h_slice = np.clip(h_slice, -1000, 3000)
+        s_slice_norm = (s_slice + 1000) / (4000)
+        h_slice_norm = (h_slice + 1000) / (4000)
         I_smooth_tensor = torch.from_numpy(s_slice_norm).float().unsqueeze(0).unsqueeze(0).to(device)
         I_sharp_tensor = torch.from_numpy(h_slice_norm).float().unsqueeze(0).unsqueeze(0).to(device)
         cur_smooth_psd = compute_psd_from_tensor(I_smooth_tensor)
@@ -86,8 +84,8 @@ def reconstruct_volume(sample, model, device, output_dir):
 
         res_sharp = I_gen_sharp.detach().cpu().numpy().squeeze()
         res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()
-        vol_generated_sharp[:, :, k] = (res_sharp * h_range) + h_min
-        vol_generated_smooth[:, :, k] = (res_smooth *s_range) + s_min
+        vol_generated_sharp[:, :, k] = (res_sharp * 4000) + -1000
+        vol_generated_smooth[:, :, k] = (res_smooth * 4000) + -1000
 
     nii_generated_sharp = nib.Nifti1Image(vol_generated_sharp, sample['sharp_affine'], sample['sharp_header']) #type: ignore
     nii_generated_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])  #type: ignore

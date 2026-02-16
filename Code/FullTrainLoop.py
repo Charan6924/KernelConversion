@@ -22,7 +22,6 @@ from datetime import datetime
 from itertools import cycle
 
 def train_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss, alpha, device, logger):
-    """Train for one epoch"""
     model.train()
     
     total_loss = 0.0
@@ -32,10 +31,8 @@ def train_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss, alp
     num_batches = 0
     nan_batches = 0
     
-    # Use cycle for MTF data - more efficient
     mtf_cycle = cycle(mtf_loader)
     
-    # Variables to store last batch for visualization
     last_I_smooth = None
     last_I_sharp = None
     last_I_gen_sharp = None
@@ -141,7 +138,6 @@ def train_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss, alp
     if nan_batches > 0:
         logger.warning(f"Epoch summary: {nan_batches} batches skipped due to NaN/Inf")
     
-    # Return metrics and last batch data for visualization
     return {
         'total_loss': total_loss / max(num_batches, 1),
         'recon_loss': total_recon_loss / max(num_batches, 1),
@@ -177,7 +173,6 @@ def main():
     NUM_EPOCHS = 150
     RESUME = False
     
-    # Scheduler configuration
     SCHEDULER_FACTOR = 0.5
     SCHEDULER_PATIENCE = 5
     SCHEDULER_MIN_LR = 1e-7
@@ -189,7 +184,6 @@ def main():
     logger = setup_logging(OUTPUT_DIR)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Print to terminal (concise)
     print("="*70)
     print(f"Training Configuration [OPTIMIZED VERSION]")
     print(f"Device: {device}")
@@ -219,7 +213,6 @@ def main():
     print("\nLoading datasets...")
     logger.info("\nLoading datasets...")
     
-    # Image dataset
     data_root = r"D:\Charan work file\KernelEstimator\Data_Root"
     image_dataset = PSDDataset(root_dir=data_root, preload=True)
     
@@ -232,7 +225,6 @@ def main():
         generator=torch.Generator().manual_seed(42)
     )
     
-    # MTF dataset
     mtf_folder = r"D:\Charan work file\PhantomTesting\MTF_Results_Output"
     psd_folder = r"D:\Charan work file\PhantomTesting\PSD_Results_Output"
     mtf_dataset = MTFPSDDataset(mtf_folder, psd_folder, verbose=False)
@@ -306,6 +298,8 @@ def main():
         'nan_batches': []
     }
     
+    epoch_metrics = []
+    
     start_epoch = 0
     best_val_loss = float('inf')
     
@@ -344,30 +338,25 @@ def main():
         logger.info(f"Learning Rate: {current_lr:.2e}")
         logger.info(f"{'='*70}")
         
-        # Train
         logger.info("\nTraining Phase:")
         train_metrics, vis_data = train_epoch(
             model, image_train_loader, mtf_train_loader,
             optimizer, scaler, l1_loss, ALPHA, device, logger
         )
         
-        # Validate
         logger.info("\nValidation Phase:")
         val_metrics = validate(
             model, image_val_loader, mtf_val_loader,
             l1_loss, ALPHA, device
         )
         
-        # Step scheduler
         scheduler.step(val_metrics['total_loss'])
         
-        # Check if LR was reduced
         new_lr = optimizer.param_groups[0]['lr']
         if new_lr < current_lr:
             print(f"*** Learning rate reduced: {current_lr:.2e} -> {new_lr:.2e} ***")
             logger.info(f"*** Learning rate reduced: {current_lr:.2e} -> {new_lr:.2e} ***")
         
-        # Update metrics
         metrics['epoch'].append(epoch_num)
         metrics['train_total_loss'].append(train_metrics['total_loss'])
         metrics['train_recon_loss'].append(train_metrics['recon_loss'])
@@ -379,7 +368,24 @@ def main():
         metrics['learning_rate'].append(new_lr)
         metrics['nan_batches'].append(train_metrics.get('nan_batches', 0))
         
-        # Print summary
+        epoch_data = {
+            'epoch': epoch_num,
+            'train_total_loss': train_metrics['total_loss'],
+            'train_recon_loss': train_metrics['recon_loss'],
+            'train_mtf_loss': train_metrics['mtf_loss'],
+            'train_grad_norm': train_metrics['grad_norm'],
+            'val_total_loss': val_metrics['total_loss'],
+            'val_recon_loss': val_metrics['recon_loss'],
+            'val_mtf_loss': val_metrics['mtf_loss'],
+            'learning_rate': new_lr,
+            'nan_batches': train_metrics.get('nan_batches', 0)
+        }
+        epoch_metrics.append(epoch_data)
+        
+        metrics_path = OUTPUT_DIR / "training_metrics.json"
+        with open(metrics_path, 'w') as f:
+            json.dump(epoch_metrics, f, indent=2)
+        
         print(f"[TRAIN] Total: {train_metrics['total_loss']:.6f} | "
               f"Recon: {train_metrics['recon_loss']:.6f} | "
               f"MTF: {train_metrics['mtf_loss']:.6f} | "
@@ -399,7 +405,6 @@ def main():
         logger.info(f"  [VAL]   Recon Loss: {val_metrics['recon_loss']:.6f}")
         logger.info(f"  [VAL]   MTF Loss: {val_metrics['mtf_loss']:.6f}")
         
-        # Visualizations
         logger.info("\nGenerating visualizations...")
         try:
             img_path = plot_images_for_epoch(
@@ -429,7 +434,6 @@ def main():
             logger.error(f"  Error during visualization: {str(e)}")
             print(f"  Warning: Visualization failed - {str(e)}")
         
-        # Save checkpoint
         is_best = val_metrics['total_loss'] < best_val_loss
         if is_best:
             best_val_loss = val_metrics['total_loss']
@@ -456,7 +460,6 @@ def main():
         logger.info(f"Checkpoint saved (is_best={is_best})")
         print("-"*70 + "\n")
     
-    # Final summary
     best_epoch = metrics['epoch'][metrics['val_total_loss'].index(min(metrics['val_total_loss']))]
     final_lr = optimizer.param_groups[0]['lr']
     
@@ -474,12 +477,10 @@ def main():
     logger.info(f"Final Learning Rate: {final_lr:.2e}")
     logger.info("="*70)
     
-    # Save metrics
     metrics_path = OUTPUT_DIR / "metrics.json"
     with open(metrics_path, 'w') as f:
         json.dump(metrics, f, indent=2)
     
-    # Plot metrics
     plot_training_metrics(metrics, ALPHA, LEARNING_RATE, OUTPUT_DIR)
 
 
