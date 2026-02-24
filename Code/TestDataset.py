@@ -56,10 +56,10 @@ class TestDataset(Dataset):
         cache = {}
         for path in tqdm(sorted(unique_paths), desc="Loading volumes"):
             try:
-                nii_img = nib.load(path)
+                nii_img = nib.load(path) #type: ignore
                 cache[path] = {
-                    'data': nii_img.get_fdata(),
-                    'affine': nii_img.affine,
+                    'data': nii_img.get_fdata(), #type: ignore
+                    'affine': nii_img.affine, #type: ignore
                     'header': nii_img.header
                 }
             except Exception as e:
@@ -84,12 +84,12 @@ class TestDataset(Dataset):
             smooth_header = self.volume_cache[smooth_path]['header']
             sharp_header = self.volume_cache[sharp_path]['header']
         else:
-            smooth_nii = nib.load(smooth_path)
-            sharp_nii = nib.load(sharp_path)
-            smooth_data = smooth_nii.get_fdata()
-            sharp_data = sharp_nii.get_fdata()
-            smooth_affine = smooth_nii.affine
-            sharp_affine = sharp_nii.affine
+            smooth_nii = nib.load(smooth_path) #type: ignore
+            sharp_nii = nib.load(sharp_path) #type: ignore
+            smooth_data = smooth_nii.get_fdata() #type: ignore 
+            sharp_data = sharp_nii.get_fdata() #type: ignore 
+            smooth_affine = smooth_nii.affine #type: ignore
+            sharp_affine = sharp_nii.affine #type: ignore
             smooth_header = smooth_nii.header
             sharp_header = sharp_nii.header
         

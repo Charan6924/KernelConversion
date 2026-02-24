@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import logging, datetime
 from itertools import cycle
+from scipy import signal
 
 def plot_images_for_epoch(I_smooth, I_sharp, I_gen_sharp, I_gen_smooth, epoch, output_dir):
     """
@@ -176,11 +177,12 @@ def validate(model, image_loader, mtf_loader, l1_loss, alpha, device):
     total_loss       = 0.0
     total_recon_loss = 0.0
     total_mtf_loss   = 0.0
+    total_ft_loss    = 0.0
     num_batches      = 0
 
     mtf_cycle = cycle(mtf_loader)
 
-    for batch_idx, (I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2) in enumerate(image_loader):
+    for batch_idx, (I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2, *_) in enumerate(image_loader):
         I_smooth_1 = I_smooth_1.to(device, non_blocking=True)
         I_sharp_1  = I_sharp_1.to(device, non_blocking=True)
         I_smooth_2 = I_smooth_2.to(device, non_blocking=True)
@@ -205,29 +207,34 @@ def validate(model, image_loader, mtf_loader, l1_loss, alpha, device):
             device=device
         )
 
-        recon_loss_smooth = l1_loss(I_generated_smooth, I_smooth_2)
-        recon_loss_sharp  = l1_loss(I_generated_sharp,  I_sharp_1)
-        recon_loss        = (recon_loss_smooth + recon_loss_sharp) / 2.0
+        recon_loss = (l1_loss(I_generated_sharp,  I_sharp_1) +
+                      l1_loss(I_generated_smooth, I_smooth_2)) / 2.0
 
-        input_profiles, target_mtfs = next(mtf_cycle)
+        input_profiles, target_mtfs, _ = next(mtf_cycle)
         input_profiles = input_profiles.to(device, non_blocking=True)
         target_mtfs    = target_mtfs.to(device, non_blocking=True)
 
-        knots_phantom, control_phantom = model(input_profiles)
-        mtf_phantom = get_torch_spline(knots_phantom, control_phantom, num_points=64).squeeze(1)
-        mtf_loss    = l1_loss(mtf_phantom, target_mtfs)
+        knots_mtf, control_mtf = model(input_profiles)
+        pred_mtf = get_torch_spline(knots_mtf, control_mtf, num_points=target_mtfs.shape[-1]).squeeze(1)
+        mtf_loss = l1_loss(pred_mtf, target_mtfs)
 
-        batch_loss = alpha * recon_loss + (1 - alpha) * mtf_loss
+        real_smooth2sharp, real_sharp2smooth = compute_ratios(psd_smooth_1, psd_sharp_2)
+        ft_loss = torch.abs(real_sharp2smooth - filter_sharp2smooth) + torch.abs(real_smooth2sharp - filter_smooth2sharp)
+        ft_loss = torch.log(ft_loss.mean() + 1)
+
+        batch_loss = alpha * recon_loss + (1 - alpha) * mtf_loss + 0.5 * ft_loss
 
         total_loss       += batch_loss.item()
         total_recon_loss += recon_loss.item()
         total_mtf_loss   += mtf_loss.item()
+        total_ft_loss    += ft_loss.item()
         num_batches      += 1
 
     return {
         'total_loss': total_loss       / max(num_batches, 1),
-        'recon_loss': total_recon_loss  / max(num_batches, 1),
-        'mtf_loss':   total_mtf_loss    / max(num_batches, 1)
+        'recon_loss': total_recon_loss / max(num_batches, 1),
+        'mtf_loss':   total_mtf_loss   / max(num_batches, 1),
+        'ft_loss':    total_ft_loss    / max(num_batches, 1),
     }
 
 def save_checkpoint(epoch, model, optimizer, scaler, metrics, best_val_loss, 
@@ -575,13 +582,12 @@ def spline_to_kernel(smooth_knots, smooth_control_points, sharp_knots, sharp_con
     smooth_spline_curve = smooth_spline_curve.view(batch_size, 1, num_spline_points, 1)
     sharp_spline_curve = sharp_spline_curve.view(batch_size, 1, num_spline_points, 1)
     
-    epsilon = 1e-3
     
-    otf_smooth_to_sharp = smooth_spline_curve / (sharp_spline_curve + epsilon)
-    otf_sharp_to_smooth = sharp_spline_curve / (smooth_spline_curve + epsilon)
+    otf_smooth_to_sharp = (smooth_spline_curve / (sharp_spline_curve  + 1e-10)).clamp(0, 8)
+    otf_sharp_to_smooth = (sharp_spline_curve  / (smooth_spline_curve + 1e-10)).clamp(0, 8)
 
-    otf_smooth_to_sharp = torch.clamp(otf_smooth_to_sharp, 0.0, 2.0)
-    otf_sharp_to_smooth = torch.clamp(otf_sharp_to_smooth, 0.0, 2.0)
+    otf_smooth_to_sharp = otf_smooth_to_sharp / (otf_smooth_to_sharp.amax(dim=(-1,-2,-3), keepdim=True) + 1e-10)
+    otf_sharp_to_smooth = otf_sharp_to_smooth / (otf_sharp_to_smooth.amax(dim=(-1,-2,-3), keepdim=True) + 1e-10)
 
     grid_x = 2.0 * t - 1.0
     grid_y = torch.zeros_like(grid_x)
@@ -605,3 +611,46 @@ def spline_to_kernel(smooth_knots, smooth_control_points, sharp_knots, sharp_con
     ).squeeze(1)
 
     return otf_smooth_to_sharp_grid, otf_sharp_to_smooth_grid
+
+def symmetric_average_2d(psd_2d):
+    B, C, H, W = psd_2d.shape
+    center = W // 2
+
+    left  = psd_2d[:, :, :, :center].flip(dims=[-1])   # [B, 1, H, 256]
+    right = psd_2d[:, :, :, center+1:]                  # [B, 1, H, 255]
+
+    min_len = min(left.shape[-1], right.shape[-1])
+    left  = left[:, :, :, :min_len]
+    right = right[:, :, :, :min_len]
+
+    averaged = (left + right) / 2.0                     # [B, 1, H, 255]
+
+    dc = psd_2d[:, :, :, center].unsqueeze(-1)          # [B, 1, H, 1]
+
+    smoothed = torch.cat([averaged.flip(dims=[-1]), dc, averaged], dim=-1)  # [B, 1, H, 511]
+    return smoothed
+
+def gaussian_blur_2d(x, kernel_size=21, sigma=5.0):
+    pad = kernel_size // 2
+    coords = torch.arange(kernel_size, dtype=torch.float32) - pad
+    g = torch.exp(-(coords**2) / (2 * sigma**2))
+    g = g / g.sum()
+    kernel = g.outer(g).unsqueeze(0).unsqueeze(0).to(x.device)
+    kernel = kernel.expand(x.shape[1], 1, -1, -1)
+    return F.conv2d(F.pad(x, (pad,pad,pad,pad), mode='reflect'), 
+                    kernel, groups=x.shape[1])
+
+def compute_ratios(psd_smooth,psd_sharp):
+    psd_smooth = gaussian_blur_2d(symmetric_average_2d(psd_smooth), kernel_size=21)
+    psd_sharp = gaussian_blur_2d(symmetric_average_2d(psd_sharp), kernel_size=21)
+    
+    real_smooth2sharp = psd_sharp/(psd_smooth + 1e-10)
+    real_sharp2smooth = psd_smooth/(psd_sharp + 1e-10)
+    real_sharp2smooth = real_sharp2smooth.clip(0,8)
+    real_smooth2sharp = real_smooth2sharp.clip(0,8) 
+    real_sharp2smooth = real_sharp2smooth / (real_sharp2smooth.amax(dim=(-1,-2,-3), keepdim=True) + 1e-10)
+    real_smooth2sharp= real_smooth2sharp / (real_smooth2sharp.amax(dim=(-1,-2,-3), keepdim=True) + 1e-10)
+    real_smooth2sharp = F.pad(real_smooth2sharp, (0, 1)) # adding the extra 1 to the last dimension
+    real_sharp2smooth = F.pad(real_sharp2smooth, (0, 1))
+    return real_smooth2sharp, real_sharp2smooth
+

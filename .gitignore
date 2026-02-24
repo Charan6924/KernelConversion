@@ -13,6 +13,11 @@ MTF_Results_Output/
 MTFTools-main/examples/
 Code/training_output_0.7/
 Code/training_output_0.5/
+Code/training_output_0.5_1/
+Code/training_output_0.5_0/
+/Code/training_output_0.5_2/
+Code/training_output_0.5_with_ft_loss/
+Code/training_output_0.8/
 Code/__pycache__/
 MTF_Results_Output/
 Code/training_output_0.5_no_clamp/
@@ -21,6 +26,8 @@ PSD_Results_Output/
 testA/
 testB/
 reconstructions/
+reconstructions_with_ft_loss/
+reconstructions_without_ft_loss/
 Code/Code/reconstructed_sharp_CB_to_YA.nii.gz
 D:\Charan work file\PhantomTesting\Code\reconstructed_smooth_YA_to_CB.nii.gz
 testA_fake_2d_mtf/
