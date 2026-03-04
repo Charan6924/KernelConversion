@@ -507,8 +507,8 @@ def spline_to_kernel(smooth_knots, smooth_control_points, sharp_knots, sharp_con
     smooth_spline_curve = get_torch_spline(smooth_knots, smooth_control_points, num_points=num_spline_points)
     sharp_spline_curve = get_torch_spline(sharp_knots, sharp_control_points, num_points=num_spline_points)
     
-    smooth_spline_curve = smooth_spline_curve.view(batch_size, 1, num_spline_points, 1)
-    sharp_spline_curve = sharp_spline_curve.view(batch_size, 1, num_spline_points, 1)
+    smooth_spline_curve = smooth_spline_curve.view(batch_size, 1, 1,num_spline_points)
+    sharp_spline_curve = sharp_spline_curve.view(batch_size, 1, 1,num_spline_points)
 
     grid_x = 2.0 * t - 1.0
     grid_y = torch.zeros_like(grid_x)
