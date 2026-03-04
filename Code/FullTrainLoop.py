@@ -57,11 +57,11 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             I_smooth_fft = compute_fft(I_smooth_1)
             I_sharp_fft = compute_fft(I_sharp_1)
 
-        with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=(device == 'cuda')):
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=(device == 'cuda')): #type: ignore
             smooth_knots, smooth_cp = model(psd_smooth)
             sharp_knots,  sharp_cp  = model(psd_sharp)
 
-            filt_s2sh, filt_sh2s = spline_to_kernel(
+            otf_smooth, otf_sharp = spline_to_kernel(
                 smooth_knots=smooth_knots,
                 smooth_control_points=smooth_cp,
                 sharp_knots=sharp_knots,
@@ -69,11 +69,15 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
                 grid_size=512
             )
 
+            # Compute actual filters as ratios of OTFs
+            filter_smooth2sharp = otf_sharp / (otf_smooth + 1e-10)
+            filter_sharp2smooth = otf_smooth / (otf_sharp + 1e-10)
+
             I_gen_sharp, I_gen_smooth = generate_images(
                 I_smooth=I_smooth_1,
                 I_sharp=I_sharp_2,
-                filter_smooth2sharp=filt_s2sh,
-                filter_sharp2smooth=filt_sh2s,
+                filter_smooth2sharp=filter_smooth2sharp,
+                filter_sharp2smooth=filter_sharp2smooth,
                 device=device
             )
 
@@ -81,13 +85,14 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             knots_mtf, cp_mtf = model(input_profiles)
             pred_mtf = get_torch_spline(knots_mtf, cp_mtf, num_points=target_mtfs.shape[-1]).squeeze(1)
             mtf_loss = l1_loss(pred_mtf, target_mtfs)
-            # FT loss: compare log FFT difference to log OTF (same as validation)
+            eps_A = 1e-6 * (torch.median(I_smooth_fft.real))
+            eps_B = 1e-6 * torch.median(I_sharp_fft.real)
             ft_loss = huber(
-                torch.log(I_smooth_fft.abs() + 1e-7) - torch.log(I_sharp_fft.abs() + 1e-7),
-                torch.log(filt_s2sh + 1e-7)  # filt_s2sh is otf_smooth from spline_to_kernel
+                torch.log(I_smooth_fft.abs() + eps_A) - torch.log(I_sharp_fft.abs() + eps_B), 
+                torch.log(otf_smooth + eps_A) - torch.log(otf_sharp + eps_B)
             )
 
-            loss = ft_loss + recon_loss
+            loss = alpha * recon_loss + (1 - alpha) * mtf_loss + 0.5 * ft_loss
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -114,7 +119,7 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             real_s2sh = sharp_mag / (smooth_mag + 1e-10)
             real_sh2s = smooth_mag / (sharp_mag + 1e-10)
 
-            axes[0, 0].plot(filt_s2sh[0, 255, :].to(torch.float32).detach().cpu(), label='pred_otf_smooth')
+            axes[0, 0].plot(otf_smooth[0, 255, :].to(torch.float32).detach().cpu(), label='pred_otf_smooth')
             axes[0, 0].set_title('pred_otf_smooth')
             axes[0, 0].legend()
 
@@ -126,7 +131,7 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             axes[1, 0].set_title('real_sh2s (smooth/sharp)')
             axes[1, 0].legend()
 
-            axes[1, 1].plot(filt_sh2s[0, 255, :].to(torch.float32).detach().cpu(), label='pred_otf_sharp')
+            axes[1, 1].plot(otf_sharp[0, 255, :].to(torch.float32).detach().cpu(), label='pred_otf_sharp')
             axes[1, 1].set_title('pred_otf_sharp')
             axes[1, 1].legend()
 
@@ -229,7 +234,7 @@ def main():
         optimizer, mode='min', factor=SCHED_FACTOR,
         patience=SCHED_PATIENCE, min_lr=SCHED_MIN_LR
     )
-    scaler  = torch.amp.GradScaler('cuda') if device == 'cuda' else None
+    scaler  = torch.amp.GradScaler('cuda') if device == 'cuda' else None #type: ignore
     l1_loss = nn.L1Loss()
 
     logger.info(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")

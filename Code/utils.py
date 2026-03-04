@@ -191,7 +191,12 @@ def validate(model, image_loader, mtf_loader, l1_loss, alpha, device):
 
         I_smooth_fft = compute_fft(I_smooth_1)
         I_sharp_fft = compute_fft(I_sharp_1)
-        ft_loss = huber(torch.log(I_smooth_fft.abs() + 1e-7) - torch.log(I_sharp_fft.abs() + 1e-7), torch.log(otf_smooth + 1e-7))
+        eps_A = 1e-6 * (torch.median(I_smooth_fft.real))
+        eps_B = 1e-6 * torch.median(I_sharp_fft.real)
+        ft_loss = huber(
+            torch.log(I_smooth_fft.abs() + eps_A) - torch.log(I_sharp_fft.abs() + eps_B), 
+            torch.log(otf_smooth + eps_A) - torch.log(otf_sharp + eps_B)
+            )
 
         batch_loss = alpha * recon_loss + (1 - alpha) * mtf_loss + 0.5 * ft_loss
 
