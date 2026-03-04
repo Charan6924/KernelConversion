@@ -15,6 +15,8 @@ from tqdm import tqdm
 from itertools import cycle
 import csv
 from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
 
 def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss, alpha, device, epoch):
     model.train()
@@ -115,7 +117,90 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
         'grad_norm':  running_grad  / denom,
         'nan_batches': skipped,
     }
-    return stats
+
+    # Return last batch data for plotting
+    plot_data = {
+        'I_gen_sharp': I_gen_sharp.detach().cpu(),
+        'I_gen_smooth': I_gen_smooth.detach().cpu(),
+        'I_sharp_1': I_sharp_1.detach().cpu(),
+        'I_smooth_2': I_smooth_2.detach().cpu(),
+        'smooth_knots': smooth_knots.detach().cpu(),
+        'smooth_cp': smooth_cp.detach().cpu(),
+        'sharp_knots': sharp_knots.detach().cpu(),
+        'sharp_cp': sharp_cp.detach().cpu(),
+        'filt_s2sh': filt_s2sh.detach().cpu(),
+        'filt_sh2s': filt_sh2s.detach().cpu(),
+    }
+    return stats, plot_data
+
+
+def plot_epoch_results(plot_data, epoch, out_dir):
+    """Plot generated images, splines, and filter slices once per epoch."""
+    vis_dir = out_dir / "visualization"
+    vis_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    fig.suptitle(f'Epoch {epoch}', fontsize=14)
+
+    # Row 1: Generated images vs targets
+    # Generated sharp
+    axes[0, 0].imshow(plot_data['I_gen_sharp'][0, 0].numpy(), cmap='gray')
+    axes[0, 0].set_title('Generated Sharp')
+    axes[0, 0].axis('off')
+
+    # Target sharp
+    axes[0, 1].imshow(plot_data['I_sharp_1'][0, 0].numpy(), cmap='gray')
+    axes[0, 1].set_title('Target Sharp')
+    axes[0, 1].axis('off')
+
+    # Generated smooth
+    axes[0, 2].imshow(plot_data['I_gen_smooth'][0, 0].numpy(), cmap='gray')
+    axes[0, 2].set_title('Generated Smooth')
+    axes[0, 2].axis('off')
+
+    # Target smooth
+    axes[0, 3].imshow(plot_data['I_smooth_2'][0, 0].numpy(), cmap='gray')
+    axes[0, 3].set_title('Target Smooth')
+    axes[0, 3].axis('off')
+
+    # Row 2: Splines and filter slices
+    # Smooth spline (MTF curve)
+    smooth_spline = get_torch_spline(plot_data['smooth_knots'], plot_data['smooth_cp'], num_points=256)
+    sharp_spline = get_torch_spline(plot_data['sharp_knots'], plot_data['sharp_cp'], num_points=256)
+
+    axes[1, 0].plot(smooth_spline[0, 0].numpy(), label='Smooth MTF', color='blue')
+    axes[1, 0].plot(sharp_spline[0, 0].numpy(), label='Sharp MTF', color='red')
+    axes[1, 0].set_title('MTF Splines')
+    axes[1, 0].set_xlabel('Frequency')
+    axes[1, 0].set_ylabel('Response')
+    axes[1, 0].legend()
+    axes[1, 0].set_ylim(0, 1.1)
+    axes[1, 0].grid(True, alpha=0.3)
+
+    # Filter smooth2sharp slice at row 255
+    filt_s2sh = plot_data['filt_s2sh']
+    axes[1, 1].plot(filt_s2sh[0, 0, 255, :].numpy(), color='green')
+    axes[1, 1].set_title('Filter S→Sh [0,0,255,:]')
+    axes[1, 1].set_xlabel('Column index')
+    axes[1, 1].set_ylabel('Value')
+    axes[1, 1].grid(True, alpha=0.3)
+
+    # Filter sharp2smooth slice at row 255
+    filt_sh2s = plot_data['filt_sh2s']
+    axes[1, 2].plot(filt_sh2s[0, 0, 255, :].numpy(), color='orange')
+    axes[1, 2].set_title('Filter Sh→S [0,0,255,:]')
+    axes[1, 2].set_xlabel('Column index')
+    axes[1, 2].set_ylabel('Value')
+    axes[1, 2].grid(True, alpha=0.3)
+
+    # 2D filter visualization (smooth2sharp)
+    axes[1, 3].imshow(filt_s2sh[0, 0].numpy(), cmap='viridis')
+    axes[1, 3].set_title('Filter S→Sh (2D)')
+    axes[1, 3].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(vis_dir / f'epoch_{epoch:03d}.png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
 
 
 def main():
@@ -202,7 +287,7 @@ def main():
         cur_lr = optimizer.param_groups[0]['lr']
         print(f"\n--- Epoch {ep}/{EPOCHS}  (lr={cur_lr:.2e}) ---")
 
-        train_stats = train_one_epoch(
+        train_stats, plot_data = train_one_epoch(
             model, img_train_loader, mtf_train_loader,
             optimizer, scaler, l1_loss, ALPHA, device, epoch=ep
         )
@@ -210,6 +295,9 @@ def main():
             model, img_val_loader, mtf_val_loader,
             l1_loss, ALPHA, device
         )
+
+        # Plot once per epoch
+        plot_epoch_results(plot_data, ep, out_dir)
 
         scheduler.step(val_stats['total_loss'])
         new_lr = optimizer.param_groups[0]['lr']
