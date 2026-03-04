@@ -81,7 +81,6 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             knots_mtf, cp_mtf = model(input_profiles)
             pred_mtf = get_torch_spline(knots_mtf, cp_mtf, num_points=target_mtfs.shape[-1]).squeeze(1)
             mtf_loss = l1_loss(pred_mtf, target_mtfs)
-            # FT loss: compare log FFT difference to log OTF (same as validation)
             ft_loss = huber(
                 torch.log(I_smooth_fft.abs() + 1e-7) - torch.log(I_sharp_fft.abs() + 1e-7),
                 torch.log(filt_s2sh + 1e-7)  # filt_s2sh is otf_smooth from spline_to_kernel
@@ -175,9 +174,9 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
 
 
 def main():
-    IMAGE_ROOT = r"D:\Charan work file\KernelEstimator\Data_Root"
-    MTF_FOLDER = r"D:\Charan work file\PhantomTesting\MTF_Results_Output"
-    PSD_FOLDER = r"D:\Charan work file\PhantomTesting\PSD_Results_Output"
+    IMAGE_ROOT = r"/home/cxv166/PhantomTesting/Data_Root"
+    MTF_FOLDER = r"/home/cxv166/PhantomTesting/MTF_Results_Output"
+    PSD_FOLDER = r"/home/cxv166/PhantomTesting/PSD_Results_Output"
 
     ALPHA      = 0.5
     LR         = 1e-4
