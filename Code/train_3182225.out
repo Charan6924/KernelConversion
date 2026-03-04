@@ -1,0 +1,15 @@
+Job ID: 3182225
+Node: gput073
+GPU: 0
+Start time: Wed Mar  4 18:16:22 EST 2026
+Device: cuda  |  alpha=0.5  |  lr=0.0001  |  epochs=150
+Finding volume pairs...
+Found 130 volume pairs
+Cached 260 unique volumes
+Total slices: 5602
+Memory usage: 27.30 GB
+Images  — train: 5041, val: 561
+MTF     — train: 185,  val: 47
+Parameters: 7,769,585
+
+--- Epoch 1/150  (lr=1.00e-04) ---

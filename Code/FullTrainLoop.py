@@ -126,7 +126,7 @@ def main():
     ALPHA      = 0.5
     LR         = 1e-4
     EPOCHS     = 150
-    BATCH_SIZE = 16
+    BATCH_SIZE = 32
     RESUME     = False
 
     SCHED_FACTOR    = 0.5
