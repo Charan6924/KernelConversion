@@ -6,24 +6,17 @@ from PSDDataset import PSDDataset
 from Dataset import MTFPSDDataset
 from SplineEstimator import KernelEstimator
 from utils import (
-    generate_images, get_torch_spline, save_checkpoint, load_checkpoint,
-    compute_gradient_norm, plot_training_metrics, validate, compute_psd,
-    plot_images_for_epoch, plot_splines_for_epoch, setup_logging,
+    generate_images, get_torch_spline, load_checkpoint,
+    compute_gradient_norm, validate, compute_psd,
     spline_to_kernel, compute_fft, huber
 )
 from pathlib import Path
 from tqdm import tqdm
 from itertools import cycle
-import json
-import numpy as np
-import logging
+import csv
 from datetime import datetime
-import matplotlib.pyplot as plt
 
-filters_dir = Path("filters")
-filters_dir.mkdir(exist_ok=True)
-
-def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss, alpha, device, logger, epoch):
+def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss, alpha, device, epoch):
     model.train()
 
     running_loss = 0.0
@@ -35,9 +28,6 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
     skipped = 0
 
     mtf_cycle = cycle(mtf_loader)
-
-    # keep track of the last batch for visualization later
-    vis = {}
 
     for i, (I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2) in enumerate(
         tqdm(image_loader, desc="Training", unit="batch")
@@ -103,38 +93,8 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             grad_norm = compute_gradient_norm(model)
             optimizer.step()
 
-        # Plot filters at the first batch of every epoch
         if i == 0:
-            fig, axes = plt.subplots(2, 2, figsize=(12, 4))
-
-            # Compute real ratios from FFT for visualization
-            smooth_mag = I_smooth_fft.abs()
-            sharp_mag = I_sharp_fft.abs()
-            real_s2sh = sharp_mag / (smooth_mag + 1e-10)
-            real_sh2s = smooth_mag / (sharp_mag + 1e-10)
-
-            axes[0, 0].plot(filt_s2sh[0, 255, :].to(torch.float32).detach().cpu(), label='pred_otf_smooth')
-            axes[0, 0].set_title('pred_otf_smooth')
-            axes[0, 0].legend()
-
-            axes[0, 1].plot(real_s2sh[0, 255, :].to(torch.float32).detach().cpu(), label='real_s2sh')
-            axes[0, 1].set_title('real_s2sh (sharp/smooth)')
-            axes[0, 1].legend()
-
-            axes[1, 0].plot(real_sh2s[0, 255, :].to(torch.float32).detach().cpu(), label='real_sh2s')
-            axes[1, 0].set_title('real_sh2s (smooth/sharp)')
-            axes[1, 0].legend()
-
-            axes[1, 1].plot(filt_sh2s[0, 255, :].to(torch.float32).detach().cpu(), label='pred_otf_sharp')
-            axes[1, 1].set_title('pred_otf_sharp')
-            axes[1, 1].legend()
-
-            plt.suptitle(f"Epoch {epoch}")
-            plt.tight_layout()
-            plt.savefig(f"filters/filter_comparison_epoch_{epoch}.png")
-            plt.close()
             print("control_scale:", model.control_scale.item())
-            
 
         running_loss  += loss.item()
         running_recon += recon_loss.item()
@@ -143,23 +103,8 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
         running_grad  += grad_norm
         n_batches     += 1
 
-        # save for vis
-        vis = {
-            'I_smooth':       I_smooth_1.detach(),
-            'I_sharp':        I_sharp_2.detach(),
-            'I_gen_sharp':    I_gen_sharp.detach(),
-            'I_gen_smooth':   I_gen_smooth.detach(),
-            'knots_smooth':   smooth_knots.detach(),
-            'control_smooth': smooth_cp.detach(),
-            'knots_sharp':    sharp_knots.detach(),
-            'control_sharp':  sharp_cp.detach(),
-            'knots_phantom':  sharp_knots.detach(),
-            'control_phantom':sharp_cp.detach(),
-            'target_mtfs':    target_mtfs.detach(),
-        }
-
     if skipped > 0:
-        logger.warning(f"{skipped} batches were skipped (NaN/Inf)")
+        print(f"WARNING: {skipped} batches were skipped (NaN/Inf)")
 
     denom = max(n_batches, 1)
     stats = {
@@ -170,7 +115,7 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
         'grad_norm':  running_grad  / denom,
         'nan_batches': skipped,
     }
-    return stats, vis
+    return stats
 
 
 def main():
@@ -190,15 +135,22 @@ def main():
 
     out_dir       = Path(f"training_output_{ALPHA}")
     ckpt_dir      = out_dir / "checkpoints"
-    vis_img_dir   = out_dir / "visualization" / "images"
-    vis_spline_dir = out_dir / "visualization" / "splines"
 
-    for d in [out_dir, ckpt_dir, vis_img_dir, vis_spline_dir]:
+    for d in [out_dir, ckpt_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    logger = setup_logging(out_dir)
+    # Setup CSV logging
+    csv_path = out_dir / f"training_metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    csv_file = open(csv_path, 'w', newline='')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow([
+        'epoch', 'learning_rate',
+        'train_total_loss', 'train_recon_loss', 'train_ft_loss', 'train_mtf_loss', 'train_grad_norm', 'nan_batches',
+        'val_total_loss', 'val_recon_loss', 'val_mtf_loss', 'val_ft_loss'
+    ])
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Device: {device}  |  alpha={ALPHA}  |  lr={LR}  |  epochs={EPOCHS}")
+    print(f"Device: {device}  |  alpha={ALPHA}  |  lr={LR}  |  epochs={EPOCHS}")
 
     img_dataset = PSDDataset(root_dir=IMAGE_ROOT, preload=True)
     n_train = int(0.9 * len(img_dataset))
@@ -219,8 +171,8 @@ def main():
     mtf_train_loader = DataLoader(mtf_train, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
     mtf_val_loader   = DataLoader(mtf_val,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    logger.info(f"Images  — train: {len(img_train)}, val: {len(img_val)}")
-    logger.info(f"MTF     — train: {len(mtf_train)},  val: {len(mtf_val)}")
+    print(f"Images  — train: {len(img_train)}, val: {len(img_val)}")
+    print(f"MTF     — train: {len(mtf_train)},  val: {len(mtf_val)}")
 
     model     = KernelEstimator().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
@@ -231,15 +183,8 @@ def main():
     scaler  = torch.amp.GradScaler('cuda') if device == 'cuda' else None
     l1_loss = nn.L1Loss()
 
-    logger.info(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    metrics = {
-        'epoch': [], 'train_total_loss': [], 'train_recon_loss': [],
-        'train_ft_loss': [], 'train_mtf_loss': [], 'train_grad_norm': [],
-        'val_total_loss': [], 'val_recon_loss': [], 'val_mtf_loss': [],
-        'learning_rate': [], 'nan_batches': []
-    }
-    epoch_log    = []
     start_epoch  = 0
     best_val     = float('inf')
 
@@ -248,7 +193,6 @@ def main():
         loaded = load_checkpoint(ckpt_path, model, optimizer, scaler)
         if loaded:
             start_epoch = loaded['epoch'] + 1
-            metrics     = loaded['metrics']
             best_val    = loaded['best_val_loss']
             if 'scheduler_state_dict' in loaded:
                 scheduler.load_state_dict(loaded['scheduler_state_dict'])
@@ -256,11 +200,11 @@ def main():
     for epoch in range(start_epoch, EPOCHS):
         ep = epoch + 1
         cur_lr = optimizer.param_groups[0]['lr']
-        logger.info(f"\n--- Epoch {ep}/{EPOCHS}  (lr={cur_lr:.2e}) ---")
+        print(f"\n--- Epoch {ep}/{EPOCHS}  (lr={cur_lr:.2e}) ---")
 
-        train_stats, vis_data = train_one_epoch(
+        train_stats = train_one_epoch(
             model, img_train_loader, mtf_train_loader,
-            optimizer, scaler, l1_loss, ALPHA, device, logger, epoch=ep  # ← pass epoch
+            optimizer, scaler, l1_loss, ALPHA, device, epoch=ep
         )
         val_stats = validate(
             model, img_val_loader, mtf_val_loader,
@@ -270,55 +214,30 @@ def main():
         scheduler.step(val_stats['total_loss'])
         new_lr = optimizer.param_groups[0]['lr']
         if new_lr < cur_lr:
-            logger.info(f"LR dropped: {cur_lr:.2e} -> {new_lr:.2e}")
+            print(f"LR dropped: {cur_lr:.2e} -> {new_lr:.2e}")
 
-        metrics['epoch'].append(ep)
-        metrics['train_total_loss'].append(train_stats['total_loss'])
-        metrics['train_recon_loss'].append(train_stats['recon_loss'])
-        metrics['train_ft_loss'].append(train_stats['ft_loss'])
-        metrics['train_mtf_loss'].append(train_stats['mtf_loss'])
-        metrics['train_grad_norm'].append(train_stats['grad_norm'])
-        metrics['val_total_loss'].append(val_stats['total_loss'])
-        metrics['val_recon_loss'].append(val_stats['recon_loss'])
-        metrics['val_mtf_loss'].append(val_stats['mtf_loss'])
-        metrics['learning_rate'].append(new_lr)
-        metrics['nan_batches'].append(train_stats.get('nan_batches', 0))
+        # Write to CSV
+        csv_writer.writerow([
+            ep, new_lr,
+            train_stats['total_loss'], train_stats['recon_loss'], train_stats['ft_loss'],
+            train_stats['mtf_loss'], train_stats['grad_norm'], train_stats.get('nan_batches', 0),
+            val_stats['total_loss'], val_stats['recon_loss'], val_stats['mtf_loss'], val_stats['ft_loss']
+        ])
+        csv_file.flush()
 
-        epoch_log.append({
-            'epoch': ep, **train_stats,
-            **{f'val_{k}': v for k, v in val_stats.items()}
-        })
-        with open(out_dir / "training_metrics.json", 'w') as f:
-            json.dump(epoch_log, f, indent=2)
-
-        logger.info(
+        print(
             f"  train — total: {train_stats['total_loss']:.4f}  recon: {train_stats['recon_loss']:.4f}"
             f"  mtf: {train_stats['mtf_loss']:.4f}"
         )
-        logger.info(
+        print(
             f"  val   — total: {val_stats['total_loss']:.4f}  recon: {val_stats['recon_loss']:.4f}"
             f"  mtf: {val_stats['mtf_loss']:.4f}"
         )
-        try:
-            plot_images_for_epoch(
-                vis_data['I_smooth'], vis_data['I_sharp'],
-                vis_data['I_gen_sharp'], vis_data['I_gen_smooth'],
-                ep, vis_img_dir
-            )
-            plot_splines_for_epoch(
-                vis_data['knots_smooth'], vis_data['control_smooth'],
-                vis_data['knots_sharp'],  vis_data['control_sharp'],
-                vis_data['knots_phantom'],vis_data['control_phantom'],
-                vis_data['target_mtfs'],
-                ep, vis_spline_dir
-            )
-        except Exception as e:
-            logger.error(f"Visualization error (epoch {ep}): {e}")
 
         is_best = val_stats['total_loss'] < best_val
         if is_best:
             best_val = val_stats['total_loss']
-            logger.info(f"  ** new best val loss: {best_val:.6f} **")
+            print(f"  ** new best val loss: {best_val:.6f} **")
 
         ckpt = {
             'epoch': ep,
@@ -326,7 +245,6 @@ def main():
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
             'scaler_state_dict':    scaler.state_dict() if scaler else None,
-            'metrics':    metrics,
             'best_val_loss': best_val,
             'alpha':      ALPHA,
             'learning_rate': LR,
@@ -335,8 +253,9 @@ def main():
         if is_best:
             torch.save(ckpt, ckpt_dir / "best_checkpoint.pth")
 
-    logger.info(f"\nDone. Best val loss: {best_val:.6f}")
-    plot_training_metrics(metrics, ALPHA, LR, out_dir)
+    csv_file.close()
+    print(f"\nDone. Best val loss: {best_val:.6f}")
+    print(f"Metrics saved to: {csv_path}")
 
 
 if __name__ == "__main__":
