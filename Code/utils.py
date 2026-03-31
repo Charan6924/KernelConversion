@@ -196,7 +196,7 @@ def validate(model, image_loader, mtf_loader, l1_loss, alpha, device):
             torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp + 1e-7)
             )
 
-        batch_loss = alpha * recon_loss + (1 - alpha) * mtf_loss + 0.5 * ft_loss
+        batch_loss = ft_loss + 0.5 * recon_loss + 0.5 * mtf_loss
 
         total_loss       += batch_loss.item()
         total_recon_loss += recon_loss.item()
@@ -517,20 +517,14 @@ def spline_to_kernel(smooth_knots, smooth_control_points, sharp_knots, sharp_con
     sampling_grid = sampling_grid.expand(batch_size, -1, -1, -1)
 
     otf_smooth = F.grid_sample(
-        smooth_spline_curve,
-        sampling_grid,
-        mode='bilinear',
-        padding_mode='border',
-        align_corners=True
-    ).squeeze(1)
+        smooth_spline_curve, sampling_grid,
+        mode='bilinear', padding_mode='border', align_corners=True
+    ).squeeze(1).clamp(min=1e-6)  
 
     otf_sharp = F.grid_sample(
-        sharp_spline_curve,
-        sampling_grid,
-        mode='bilinear',
-        padding_mode='border',
-        align_corners=True
-    ).squeeze(1)
+        sharp_spline_curve, sampling_grid,
+        mode='bilinear', padding_mode='border', align_corners=True
+    ).squeeze(1).clamp(min=1e-6) 
 
     return otf_smooth, otf_sharp
 

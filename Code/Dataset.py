@@ -143,3 +143,36 @@ class MTFPSDDataset(Dataset):
 
     def get_identifiers(self):
         return [pair['identifier'] for pair in self.pairs]
+    
+    @staticmethod
+    def build_dataloaders(mtf_folder,psd_folder,batch_size = 32,split = (0.8, 0.1, 0.1),seed = 42, transform=None,target_transform=None,num_workers = 0,pin_memory = False,verbose= True) -> Tuple[DataLoader, DataLoader, DataLoader]:
+        assert abs(sum(split) - 1.0) < 1e-6, f"Split fractions must sum to 1.0, got {sum(split)}"
+
+        dataset = MTFPSDDataset(
+            mtf_folder=mtf_folder,
+            psd_folder=psd_folder,
+            transform=transform,
+            target_transform=target_transform,
+            verbose=verbose,
+        )
+
+        n_total = len(dataset)
+        n_train = int(n_total * split[0])
+        n_val   = int(n_total * split[1])
+        n_test  = n_total - n_train - n_val  # absorbs any rounding remainder
+
+        generator = torch.Generator().manual_seed(seed)
+        train_ds, val_ds, test_ds = torch.utils.data.random_split(
+            dataset, [n_train, n_val, n_test], generator=generator
+        )
+
+        if verbose:
+            print(f"Dataset split — train: {n_train}, val: {n_val}, test: {n_test} (total: {n_total})")
+
+        loader_kwargs = dict(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
+
+        train_loader = DataLoader(train_ds, shuffle=True,  **loader_kwargs)
+        val_loader   = DataLoader(val_ds,   shuffle=False, **loader_kwargs)
+        test_loader  = DataLoader(test_ds,  shuffle=False, **loader_kwargs)
+
+        return train_loader, val_loader, test_loader

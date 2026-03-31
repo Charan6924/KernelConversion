@@ -38,3 +38,7 @@ Code/training_output_0.5_with_smoothed_ft_loss
 Code/filters
 Data_Root/
 Code/training_output_0.5_best/
+Code/training_output_0.5_top/
+Code/training_output_0.5_full/
+Code/training_output_0.5_partial_loss/
+logs/

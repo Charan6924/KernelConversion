@@ -22,12 +22,12 @@ import numpy as np
 
 @dataclass
 class TrainConfig:
-    image_root: str = r"/home/cxv166/PhantomTesting/Data_Root"
+    image_root: str = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
     mtf_folder: str = r"/home/cxv166/PhantomTesting/MTF_Results_Output"
     psd_folder: str = r"/home/cxv166/PhantomTesting/PSD_Results_Output"
     alpha: float = 0.5
     lr: float = 1e-4
-    epochs: int = 150
+    epochs: int = 22
     batch_size: int = 32
     resume: bool = False
     sched_factor: float = 0.5
@@ -96,7 +96,7 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             mtf_loss = l1_loss(pred_mtf, target_mtfs)
 
             ft_loss = huber(
-                torch.log(I_smooth_fft.abs() + 1e-7) - torch.log(I_sharp_fft.abs() + 1e-7),
+                torch.log(I_smooth_fft.real.abs() + 1e-7) - torch.log(I_sharp_fft.real.abs() + 1e-7),
                 torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp  + 1e-7)
             )
 
