@@ -27,7 +27,7 @@ class ConvBlock(nn.Module):
         self.norm1 = nn.BatchNorm2d(out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
         self.norm2 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.LeakyReLU(0.2, inplace=True)
+        self.relu = nn.LeakyReLU(0.2)
         self.dropout = nn.Dropout2d(0.1)
 
     def forward(self, x):
@@ -87,7 +87,7 @@ class KernelEstimator(nn.Module):
         self.flatten = nn.Flatten()
         self.fc_head = nn.Sequential(
             nn.Linear(32, 64),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2),
             nn.Dropout(0.1),
             nn.Linear(64, 16)
         )

@@ -20,7 +20,7 @@ psd_sharp  = compute_psd(I_sharp,  device='cuda').to(device, non_blocking=True)
 I_smooth_fft = compute_fft(I_smooth)
 I_sharp_fft = compute_fft(I_sharp)
 
-plt.plot(I_smooth_fft.real[0,255,:].to('cpu'))
+plt.plot(I_smooth_fft.real[0,:,:].to('cpu'))
 plt.savefig("plot2")
 plt.clf()
 I_smooth_fft = I_smooth_fft.real

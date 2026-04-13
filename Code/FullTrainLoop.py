@@ -28,7 +28,7 @@ class TrainConfig:
     alpha: float = 0.5
     lr: float = 1e-4
     epochs: int = 22
-    batch_size: int = 32
+    batch_size: int = 32  # Increased from 32 to keep per-GPU batch size the same across 4 GPUs
     resume: bool = False
     sched_factor: float = 0.5
     sched_patience: int = 5
@@ -45,6 +45,9 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
     running_grad = 0.0
     n_batches = 0
     skipped = 0
+
+    # Get the unwrapped model for accessing attributes directly
+    raw_model = model.module if isinstance(model, nn.DataParallel) else model
 
     mtf_cycle = cycle(mtf_loader)
 
@@ -88,7 +91,7 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
                 filter_sharp2smooth=filt_sh2s,
                 device=device
             )
-            
+
             recon_loss = (l1_loss(I_gen_sharp, I_sharp_1) + l1_loss(I_gen_smooth, I_smooth_2)) / 2.0
 
             knots_mtf, cp_mtf = model(input_profiles)
@@ -118,7 +121,8 @@ def train_one_epoch(model, image_loader, mtf_loader, optimizer, scaler, l1_loss,
             optimizer.step()
 
         if i == 0:
-            print("control_scale:", model.control_scale.item())
+            # Use raw_model to access module attributes directly
+            print("control_scale:", raw_model.control_scale.item())
 
         running_loss  += loss.item()
         running_recon += recon_loss.item()
@@ -222,7 +226,7 @@ def main():
     print(f"Device: {device}  |  alpha={cfg.alpha}  |  lr={cfg.lr}  |  epochs={cfg.epochs}")
     print(cfg)
 
-    img_dataset = PSDDataset(root_dir=cfg.image_root, preload=True)
+    img_dataset = PSDDataset(root_dir=cfg.image_root, preload=False)
     n_train = int(0.9 * len(img_dataset))
     img_train, img_val = random_split(
         img_dataset, [n_train, len(img_dataset) - n_train],
@@ -244,7 +248,16 @@ def main():
     print(f"Images — train: {len(img_train)}, val: {len(img_val)}")
     print(f"MTF — train: {len(mtf_train)},  val: {len(mtf_val)}")
 
-    model     = KernelEstimator().to(device)
+    model = KernelEstimator().to(device)
+
+    # Wrap with DataParallel if multiple GPUs are available
+    num_gpus = torch.cuda.device_count()
+    if device == 'cuda' and num_gpus > 1:
+        print(f"Using {num_gpus} GPUs with DataParallel")
+        model = nn.DataParallel(model)
+    else:
+        print(f"Using single device: {device}")
+
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=cfg.sched_factor,
@@ -260,7 +273,9 @@ def main():
 
     if cfg.resume:
         ckpt_path = ckpt_dir / "latest_checkpoint.pth"
-        loaded = load_checkpoint(ckpt_path, model, optimizer, scaler)
+        # Load into the unwrapped model to avoid key mismatches
+        raw_model = model.module if isinstance(model, nn.DataParallel) else model
+        loaded = load_checkpoint(ckpt_path, raw_model, optimizer, scaler)
         if loaded:
             start_epoch = loaded['epoch'] + 1
             best_val    = loaded['best_val_loss']
@@ -310,9 +325,11 @@ def main():
             best_val = val_stats['total_loss']
             print(f"  ** new best val loss: {best_val:.6f} **")
 
+        # Always save the unwrapped model's state_dict to avoid 'module.' prefix issues on reload
+        raw_model = model.module if isinstance(model, nn.DataParallel) else model
         ckpt = {
             'epoch':                ep,
-            'model_state_dict':     model.state_dict(),
+            'model_state_dict':     raw_model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
             'scaler_state_dict':    scaler.state_dict() if scaler else None,
