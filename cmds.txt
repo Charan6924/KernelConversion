@@ -1,0 +1,7 @@
+srun -p cgpudlw --nodelist=cgput004 -c 24 --time=72:00:00 --gres=gpu:4 --mem=120g --pty /bin/bash
+
+torchrun --nproc_per_node=4 ddpTrain.py
+torchrun --nproc_per_node=4 ddpTrainAdvaserial.py
+srun --jobid=50199 --overlap --pty bash
+watch -n 0.1 nvidia-smi
+htop -u cxv166 
