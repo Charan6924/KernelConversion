@@ -14,7 +14,7 @@ from utils import (
     compute_gradient_norm, compute_psd,
     spline_to_kernel, compute_fft, huber
 )
-from Discriminator import MultiScaleDiscriminator, lsgan_d_loss, lsgan_g_loss
+from Discriminator import MultiScaleDiscriminator, lsgan_d_loss, lsgan_g_loss #type: ignore
 from dataclasses import dataclass
 from pathlib import Path
 from tqdm import tqdm
@@ -33,8 +33,8 @@ class TrainConfig:
     alpha: float = 0.5
     lr: float = 1e-4
     d_lr: float = 2e-4
-    lambda_adv: float = 1.0
-    epochs: int = 22
+    lambda_adv: float = 0.1
+    epochs: int = 100
     batch_size: int = 16
     resume: bool = False
     sched_factor: float = 0.5

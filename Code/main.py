@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 
-df = pd.read_csv('/home/cxv166/PhantomTesting/Code/training_output_0.5/training_metrics_20260330_170421.csv')
+df = pd.read_csv('/home/cxv166/PhantomTesting/Code/training_output_0.5/training_metrics_20260413_200905.csv')
 
 print(df.head())
 
@@ -15,9 +15,9 @@ plt.title('val mtf loss')
 plt.savefig('mtf_loss')
 plt.clf()
 
-plt.plot(df['val_recon_loss'])
-plt.title('val recon loss')
-plt.savefig('recon_loss')
+plt.plot(df['val_g_adv_loss'])
+plt.title('val_g_adv_loss')
+plt.savefig('g_adv__loss')
 plt.clf()
 
 plt.plot(df['val_total_loss'])
