@@ -34,7 +34,7 @@ class TrainConfig:
     lr: float = 1e-4
     d_lr: float = 2e-4
     lambda_adv: float = 0.1
-    epochs: int = 100
+    epochs: int = 500
     batch_size: int = 16
     resume: bool = False
     sched_factor: float = 0.5
@@ -506,7 +506,8 @@ def main():
                 'lambda_adv':             cfg.lambda_adv,
                 'learning_rate':          cfg.lr,
             }
-            torch.save(ckpt, ckpt_dir / f"epoch_{ep}_checkpoint.pth")
+            if epoch%10 == 0:
+                torch.save(ckpt, ckpt_dir / f"epoch_{ep}_checkpoint.pth")
             if is_best:
                 torch.save(ckpt, ckpt_dir / "best_checkpoint.pth")
         else:
