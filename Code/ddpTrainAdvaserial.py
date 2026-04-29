@@ -34,7 +34,7 @@ class TrainConfig:
     lr: float = 1e-4
     d_lr: float = 2e-4
     lambda_adv: float = 0.1
-    epochs: int = 500
+    epochs: int = 100
     batch_size: int = 16
     resume: bool = False
     sched_factor: float = 0.5
@@ -160,8 +160,8 @@ def train_one_epoch(model, D_sharp, D_smooth, image_loader, mtf_loader, optimize
             mtf_loss = l1_loss(pred_mtf, target_mtfs)
 
             ft_loss = huber(
-                torch.log(I_smooth_fft.real.abs() + 1e-7) - torch.log(I_sharp_fft.real.abs() + 1e-7),
-                torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp  + 1e-7)
+                torch.log(torch.abs(I_sharp_fft) + 1e-7) - torch.log(torch.abs(I_smooth_fft) + 1e-7),
+                torch.log(otf_sharp + 1e-7) - torch.log(otf_smooth + 1e-7)
             )
 
             loss = ft_loss + alpha * mtf_loss + lambda_adv * g_adv_loss
@@ -506,8 +506,7 @@ def main():
                 'lambda_adv':             cfg.lambda_adv,
                 'learning_rate':          cfg.lr,
             }
-            if epoch%10 == 0:
-                torch.save(ckpt, ckpt_dir / f"epoch_{ep}_checkpoint.pth")
+            torch.save(ckpt, ckpt_dir / f"epoch_{ep}_checkpoint.pth")
             if is_best:
                 torch.save(ckpt, ckpt_dir / "best_checkpoint.pth")
         else:
