@@ -18,7 +18,6 @@ def compute_psd_batch_gpu(image_batch, device):
     psd_flat = psd.view(b, -1)
     p_min = psd_flat.min(dim=1, keepdim=True)[0].view(b, 1, 1, 1)
     p_max = psd_flat.max(dim=1, keepdim=True)[0].view(b, 1, 1, 1)
-    
     psd = (psd - p_min) / (p_max - p_min + 1e-8)
     return psd
 
