@@ -8,7 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn import functional as F
 from PSDDataset import PSDDataset
 from KernelEstimator import KernelEstimator
-from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, spline_to_kernel, generate_images, huber
+from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, spline_to_kernel, generate_images
 from Discriminator import MultiScaleDiscriminator, lsgan_d_loss, lsgan_g_loss
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,10 +130,13 @@ def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
             g_adv_loss = (lsgan_g_loss(pred_fake_sharp) +
                           lsgan_g_loss(pred_fake_smooth))
 
-            ft_loss = huber(
-                torch.log(I_smooth_fft.real.abs() + 1e-7) - torch.log(I_sharp_fft.real.abs() + 1e-7),
-                torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp + 1e-7)
-            )
+            real_smooth2sharp = I_sharp_fft / (I_smooth_fft + 1e-10)
+            real_sharp2smooth = I_smooth_fft / (I_sharp_fft  + 1e-10)
+
+            ft_loss = torch.log(
+                torch.abs(real_smooth2sharp.real - filt_s2sh) +
+                torch.abs(real_sharp2smooth.real - filt_sh2s) + 1
+            ).mean()
 
             recon_loss = (
                 F.l1_loss(I_gen_sharp,  I_sharp_1.squeeze(1).float()) +
@@ -232,10 +235,13 @@ def validate_adv(model, D_sharp, D_smooth, image_loader,
         g_adv_loss = (lsgan_g_loss(D_sharp(I_gen_sharp_4d)) +
                       lsgan_g_loss(D_smooth(I_gen_smooth_4d)))
 
-        ft_loss = huber(
-            torch.log(I_smooth_fft.real.abs() + 1e-7) - torch.log(I_sharp_fft.real.abs() + 1e-7),
-            torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp + 1e-7)
-        )
+        real_smooth2sharp = I_sharp_fft / (I_smooth_fft + 1e-10)
+        real_sharp2smooth = I_smooth_fft / (I_sharp_fft  + 1e-10)
+
+        ft_loss = torch.log(
+            torch.abs(real_smooth2sharp.real - filt_s2sh) +
+            torch.abs(real_sharp2smooth.real - filt_sh2s) + 1
+        ).mean()
 
         recon_loss = (
             F.l1_loss(I_gen_sharp,  I_sharp_1.squeeze(1).float()) +
