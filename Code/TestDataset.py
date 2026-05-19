@@ -107,21 +107,3 @@ class TestDataset(Dataset):
             'sharp_file': sharp_file
         }
 
-
-root_dir = "/home/cxv166/PhantomTesting/Data_Root"
-test_dataset = TestDataset(root_dir=root_dir)
-
-print(f"\nDataset length: {len(test_dataset)}")
-
-sample = test_dataset[0]
-print(f"\nFirst sample volume ID: {sample['volume_id']}")
-print(f"Smooth volume shape: {sample['smooth_volume'].shape}")
-print(f"Sharp volume shape: {sample['sharp_volume'].shape}")
-print(f"Smooth file: {sample['smooth_file']}")
-print(f"Sharp file: {sample['sharp_file']}")
-print(f"Affine shape: {sample['smooth_affine'].shape}")
-
-print("\nIterating through first 3 volumes:")
-for i in range(min(3, len(test_dataset))):
-    vol = test_dataset[i]
-    print(f"Volume {i}: {vol['volume_id']}, Shape: {vol['smooth_volume'].shape}")

@@ -22,6 +22,6 @@ echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
 # Run training
-uv run reconstruct.py
+uv run reconstruct2d.py
 
 echo "End time: $(date)"
