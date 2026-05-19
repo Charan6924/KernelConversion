@@ -2,9 +2,8 @@ import numpy as np
 import nibabel as nib
 import torch
 import os
-from utils import radial_to_2d
+from utils import spline_to_kernel, generate_images
 from TestDataset import TestDataset
-from ddpTrainComplexKernel import apply_complex_filter
 from KernelEstimator import KernelEstimator
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -69,17 +68,17 @@ def reconstruct_volume(sample, model, device, output_dir):
         cur_sharp_psd  = compute_psd_from_tensor(I_sharp_tensor)
 
         with torch.no_grad():
-            out_smooth = model(cur_smooth_psd)  # (1, 256)
-            out_sharp  = model(cur_sharp_psd)   # (1, 256)
+            smooth_curve = model(cur_smooth_psd)  # (1, 256)
+            sharp_curve  = model(cur_sharp_psd)   # (1, 256)
 
-            H_smooth = radial_to_2d(out_smooth)  # (1, 512, 512)
-            H_sharp  = radial_to_2d(out_sharp)   # (1, 512, 512)
+            otf_smooth, otf_sharp = spline_to_kernel(smooth_curve, sharp_curve)
 
-            filt_s2sh = H_sharp / (H_smooth + 1e-10)
-            filt_sh2s = H_smooth / (H_sharp  + 1e-10)
+            filt_s2sh = otf_sharp / (otf_smooth + 1e-10)
+            filt_sh2s = otf_smooth / (otf_sharp  + 1e-10)
 
-            I_gen_sharp  = apply_complex_filter(I_smooth_tensor, filt_s2sh, device)
-            I_gen_smooth = apply_complex_filter(I_sharp_tensor,  filt_sh2s, device)
+            I_gen_sharp, I_gen_smooth = generate_images(
+                I_smooth_tensor, I_sharp_tensor, filt_s2sh, filt_sh2s, device
+            )
 
         res_sharp  = I_gen_sharp.detach().cpu().numpy().squeeze()
         res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()

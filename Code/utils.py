@@ -490,42 +490,21 @@ def compute_fft(image, device='cuda'):
         fft_shifted = torch.fft.fftshift(fft)
     return fft_shifted
 
-def spline_to_kernel(smooth_knots, smooth_control_points, sharp_knots, sharp_control_points, grid_size=512):
-    batch_size = smooth_knots.shape[0]
-    device = smooth_knots.device
+def spline_to_kernel(smooth_curve, sharp_curve, grid_size=512):
+    """
+    Convert 1D radial profiles to 2D radially symmetric OTFs.
 
-    center = grid_size / 2.0
-    y = torch.arange(grid_size, device=device, dtype=torch.float32) - center
-    x = torch.arange(grid_size, device=device, dtype=torch.float32) - center
-    y_grid, x_grid = torch.meshgrid(y, x, indexing='ij')
+    Args:
+        smooth_curve: (B, N) radial profile for the smooth kernel
+        sharp_curve:  (B, N) radial profile for the sharp kernel
+        grid_size: size of the output square grid.
 
-    distance = torch.sqrt(x_grid**2 + y_grid**2)
-    max_distance = center * np.sqrt(2)
-    t = distance / max_distance
-    t = torch.clamp(t, 0, 1)
-
-    num_spline_points = 256
-    smooth_spline_curve = get_torch_spline(smooth_knots, smooth_control_points, num_points=num_spline_points)
-    sharp_spline_curve = get_torch_spline(sharp_knots, sharp_control_points, num_points=num_spline_points)
-    
-    smooth_spline_curve = smooth_spline_curve.view(batch_size, 1, 1,num_spline_points)
-    sharp_spline_curve = sharp_spline_curve.view(batch_size, 1, 1,num_spline_points)
-
-    grid_x = 2.0 * t - 1.0
-    grid_y = torch.zeros_like(grid_x)
-    sampling_grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0)
-    sampling_grid = sampling_grid.expand(batch_size, -1, -1, -1)
-
-    otf_smooth = F.grid_sample(
-        smooth_spline_curve, sampling_grid,
-        mode='bilinear', padding_mode='border', align_corners=True
-    ).squeeze(1).clamp(min=1e-6)  
-
-    otf_sharp = F.grid_sample(
-        sharp_spline_curve, sampling_grid,
-        mode='bilinear', padding_mode='border', align_corners=True
-    ).squeeze(1).clamp(min=1e-6) 
-
+    Returns:
+        otf_smooth: (B, grid_size, grid_size) real-valued OTF, clamped >= 1e-6
+        otf_sharp:  (B, grid_size, grid_size) real-valued OTF, clamped >= 1e-6
+    """
+    otf_smooth = radial_to_2d(smooth_curve, grid_size).clamp(min=1e-6)
+    otf_sharp  = radial_to_2d(sharp_curve,  grid_size).clamp(min=1e-6)
     return otf_smooth, otf_sharp
 
 def radial_to_2d(radial_profile, grid_size=512):

@@ -8,7 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn import functional as F
 from PSDDataset import PSDDataset
 from KernelEstimator import KernelEstimator
-from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, radial_to_2d
+from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, spline_to_kernel, generate_images, huber
 from Discriminator import MultiScaleDiscriminator, lsgan_d_loss, lsgan_g_loss
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,14 +56,6 @@ def all_reduce_stats(stats: dict) -> dict:
     return stats
 
 
-def apply_complex_filter(image: torch.Tensor, kernel: torch.Tensor, device: str) -> torch.Tensor:
-    if image.dim() == 4:
-        image = image.squeeze(1)
-    I_fft = torch.fft.fftshift(torch.fft.fft2(image.float()))
-    filtered = torch.fft.ifft2(torch.fft.ifftshift(I_fft * kernel))
-    return filtered.real
-
-
 def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
                     scaler, alpha, lambda_adv, lambda_recon, device, epoch, is_main):
     model.train()
@@ -94,17 +86,17 @@ def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
             I_sharp_fft  = compute_fft(I_sharp_1)
 
         with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=True): #type: ignore
-            out_smooth = model(psd_smooth)  # (B, 256)
-            out_sharp  = model(psd_sharp)   # (B, 256)
+            smooth_curve = model(psd_smooth)  # (B, 256)
+            sharp_curve  = model(psd_sharp)   # (B, 256)
 
-            H_smooth = radial_to_2d(out_smooth)  # (B, 512, 512)
-            H_sharp  = radial_to_2d(out_sharp)   # (B, 512, 512)
+            otf_smooth, otf_sharp = spline_to_kernel(smooth_curve, sharp_curve)
 
-            filt_s2sh = H_sharp / (H_smooth + 1e-10)
-            filt_sh2s = H_smooth / (H_sharp  + 1e-10)
+            filt_s2sh = otf_sharp / (otf_smooth + 1e-10)
+            filt_sh2s = otf_smooth / (otf_sharp  + 1e-10)
 
-            I_gen_sharp  = apply_complex_filter(I_smooth_1, filt_s2sh, device)
-            I_gen_smooth = apply_complex_filter(I_sharp_2,  filt_sh2s, device)
+            I_gen_sharp, I_gen_smooth = generate_images(
+                I_smooth_1, I_sharp_2, filt_s2sh, filt_sh2s, device
+            )
 
         I_gen_sharp_4d  = I_gen_sharp.unsqueeze(1)
         I_gen_smooth_4d = I_gen_smooth.unsqueeze(1)
@@ -138,13 +130,10 @@ def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
             g_adv_loss = (lsgan_g_loss(pred_fake_sharp) +
                           lsgan_g_loss(pred_fake_smooth))
 
-            real_smooth2sharp = I_sharp_fft / (I_smooth_fft + 1e-10)
-            real_sharp2smooth = I_smooth_fft / (I_sharp_fft  + 1e-10)
-
-            ft_loss = torch.log(
-                torch.abs(real_smooth2sharp - filt_s2sh) +
-                torch.abs(real_sharp2smooth - filt_sh2s) + 1
-            ).mean()
+            ft_loss = huber(
+                torch.log(I_smooth_fft.real.abs() + 1e-7) - torch.log(I_sharp_fft.real.abs() + 1e-7),
+                torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp + 1e-7)
+            )
 
             recon_loss = (
                 F.l1_loss(I_gen_sharp,  I_sharp_1.squeeze(1).float()) +
@@ -193,8 +182,8 @@ def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
         'I_gen_smooth': I_gen_smooth.detach().cpu(), #type: ignore
         'I_sharp_1':    I_sharp_1.detach().cpu(), #type: ignore
         'I_smooth_2':   I_smooth_2.detach().cpu(), #type: ignore
-        'H_smooth':     H_smooth.detach().cpu(), #type: ignore
-        'H_sharp':      H_sharp.detach().cpu(), #type: ignore
+        'otf_smooth':   otf_smooth.detach().cpu(), #type: ignore
+        'otf_sharp':    otf_sharp.detach().cpu(), #type: ignore
         'filt_s2sh':    filt_s2sh.detach().cpu(), #type: ignore
         'filt_sh2s':    filt_sh2s.detach().cpu(), #type: ignore
     }
@@ -228,14 +217,14 @@ def validate_adv(model, D_sharp, D_smooth, image_loader,
         out_smooth = model(psd_smooth)
         out_sharp  = model(psd_sharp)
 
-        H_smooth = radial_to_2d(out_smooth)
-        H_sharp  = radial_to_2d(out_sharp)
+        otf_smooth, otf_sharp = spline_to_kernel(out_smooth, out_sharp)
 
-        filt_s2sh = H_sharp / (H_smooth + 1e-10)
-        filt_sh2s = H_smooth / (H_sharp  + 1e-10)
+        filt_s2sh = otf_sharp / (otf_smooth + 1e-10)
+        filt_sh2s = otf_smooth / (otf_sharp  + 1e-10)
 
-        I_gen_sharp  = apply_complex_filter(I_smooth_1, filt_s2sh, device)
-        I_gen_smooth = apply_complex_filter(I_sharp_2,  filt_sh2s, device)
+        I_gen_sharp, I_gen_smooth = generate_images(
+            I_smooth_1, I_sharp_2, filt_s2sh, filt_sh2s, device
+        )
 
         I_gen_sharp_4d  = I_gen_sharp.unsqueeze(1)
         I_gen_smooth_4d = I_gen_smooth.unsqueeze(1)
@@ -243,13 +232,10 @@ def validate_adv(model, D_sharp, D_smooth, image_loader,
         g_adv_loss = (lsgan_g_loss(D_sharp(I_gen_sharp_4d)) +
                       lsgan_g_loss(D_smooth(I_gen_smooth_4d)))
 
-        real_smooth2sharp = I_sharp_fft / (I_smooth_fft + 1e-10)
-        real_sharp2smooth = I_smooth_fft / (I_sharp_fft  + 1e-10)
-
-        ft_loss = torch.log(
-            torch.abs(real_smooth2sharp - filt_s2sh) +
-            torch.abs(real_sharp2smooth - filt_sh2s) + 1
-        ).mean()
+        ft_loss = huber(
+            torch.log(I_smooth_fft.real.abs() + 1e-7) - torch.log(I_sharp_fft.real.abs() + 1e-7),
+            torch.log(otf_smooth + 1e-7) - torch.log(otf_sharp + 1e-7)
+        )
 
         recon_loss = (
             F.l1_loss(I_gen_sharp,  I_sharp_1.squeeze(1).float()) +
@@ -283,18 +269,18 @@ def plot_epoch_results(plot_data, epoch, out_dir):
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
     fig.suptitle(f'Epoch {epoch}', fontsize=14)
 
-    H_smooth_vals = plot_data['H_smooth'][0].numpy()
-    H_sharp_vals  = plot_data['H_sharp'][0].numpy()
-    mid = H_smooth_vals.shape[0] // 2
-    axes[0, 0].plot(H_smooth_vals[mid], label='Smooth', color='blue')
-    axes[0, 0].plot(H_sharp_vals[mid],  label='Sharp',  color='red')
-    axes[0, 0].set_title('Estimated kernel radial profile (central row)')
+    otf_smooth_vals = plot_data['otf_smooth'][0].numpy()
+    otf_sharp_vals  = plot_data['otf_sharp'][0].numpy()
+    mid = otf_smooth_vals.shape[0] // 2
+    axes[0, 0].plot(otf_smooth_vals[mid], label='Smooth', color='blue')
+    axes[0, 0].plot(otf_sharp_vals[mid],  label='Sharp',  color='red')
+    axes[0, 0].set_title('OTF radial profile (central row)')
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
 
-    axes[0, 1].plot(np.log(np.abs(H_smooth_vals[mid]) + 1e-7), label='Smooth log|H|', color='blue')
-    axes[0, 1].plot(np.log(np.abs(H_sharp_vals[mid])  + 1e-7), label='Sharp  log|H|', color='red')
-    axes[0, 1].set_title('Log-magnitude (central row)')
+    axes[0, 1].plot(np.log(otf_smooth_vals[mid] + 1e-7), label='Smooth log(OTF)', color='blue')
+    axes[0, 1].plot(np.log(otf_sharp_vals[mid]  + 1e-7), label='Sharp  log(OTF)', color='red')
+    axes[0, 1].set_title('Log-OTF (central row)')
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
 

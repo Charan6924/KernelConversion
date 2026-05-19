@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 
 # ---------------------------------------------------------------------------
 # S2K-style building blocks (single conv per stage, no dropout in backbone)
@@ -107,5 +108,7 @@ class KernelEstimator(nn.Module):
         x = self.global_pool(x)   # (B, 512, 1, 1)
         x = self.flatten(x)       # (B, 512)
         profile = self.fc_head(x) # (B, 256)
+        profile = F.softplus(profile)                # non-negative
+        profile = profile / (profile[:, 0:1] + 1e-8) # first point = 1
 
         return profile
