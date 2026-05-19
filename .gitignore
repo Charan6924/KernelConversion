@@ -43,3 +43,4 @@ Code/training_output_0.5_full/
 Code/training_output_0.5_partial_loss/
 logs/
 Code/training_output_0.5_100/
+Code/best_checkpoint_2d_kernel.pth
