@@ -8,7 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn import functional as F
 from PSDDataset import PSDDataset
 from KernelEstimator import KernelEstimator
-from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft
+from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, radial_to_2d
 from Discriminator import MultiScaleDiscriminator, lsgan_d_loss, lsgan_g_loss
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,22 +56,12 @@ def all_reduce_stats(stats: dict) -> dict:
     return stats
 
 
-def model_to_complex_kernel(out: torch.Tensor) -> torch.Tensor:
-    out = out.float()
-    return torch.complex(out[:, 0], out[:, 1])
-
-
 def apply_complex_filter(image: torch.Tensor, kernel: torch.Tensor, device: str) -> torch.Tensor:
     if image.dim() == 4:
         image = image.squeeze(1)
     I_fft = torch.fft.fftshift(torch.fft.fft2(image.float()))
     filtered = torch.fft.ifft2(torch.fft.ifftshift(I_fft * kernel))
     return filtered.real
-
-
-def complex_kernel_ratio(H_num: torch.Tensor, H_den: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
-    denom = H_den + eps * torch.exp(1j * torch.angle(H_den))
-    return H_num / denom
 
 
 def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
@@ -104,14 +94,14 @@ def train_one_epoch(model, D_sharp, D_smooth, image_loader, optimizer, opt_D,
             I_sharp_fft  = compute_fft(I_sharp_1)
 
         with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=True): #type: ignore
-            out_smooth = model(psd_smooth)
-            out_sharp  = model(psd_sharp)
+            out_smooth = model(psd_smooth)  # (B, 256)
+            out_sharp  = model(psd_sharp)   # (B, 256)
 
-            H_smooth = model_to_complex_kernel(out_smooth)
-            H_sharp  = model_to_complex_kernel(out_sharp)
+            H_smooth = radial_to_2d(out_smooth)  # (B, 512, 512)
+            H_sharp  = radial_to_2d(out_sharp)   # (B, 512, 512)
 
-            filt_s2sh = complex_kernel_ratio(H_sharp,  H_smooth)
-            filt_sh2s = complex_kernel_ratio(H_smooth, H_sharp)
+            filt_s2sh = H_sharp / (H_smooth + 1e-10)
+            filt_sh2s = H_smooth / (H_sharp  + 1e-10)
 
             I_gen_sharp  = apply_complex_filter(I_smooth_1, filt_s2sh, device)
             I_gen_smooth = apply_complex_filter(I_sharp_2,  filt_sh2s, device)
@@ -238,11 +228,11 @@ def validate_adv(model, D_sharp, D_smooth, image_loader,
         out_smooth = model(psd_smooth)
         out_sharp  = model(psd_sharp)
 
-        H_smooth = model_to_complex_kernel(out_smooth)
-        H_sharp  = model_to_complex_kernel(out_sharp)
+        H_smooth = radial_to_2d(out_smooth)
+        H_sharp  = radial_to_2d(out_sharp)
 
-        filt_s2sh = complex_kernel_ratio(H_sharp,  H_smooth)
-        filt_sh2s = complex_kernel_ratio(H_smooth, H_sharp)
+        filt_s2sh = H_sharp / (H_smooth + 1e-10)
+        filt_sh2s = H_smooth / (H_sharp  + 1e-10)
 
         I_gen_sharp  = apply_complex_filter(I_smooth_1, filt_s2sh, device)
         I_gen_smooth = apply_complex_filter(I_sharp_2,  filt_sh2s, device)
@@ -293,29 +283,29 @@ def plot_epoch_results(plot_data, epoch, out_dir):
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
     fig.suptitle(f'Epoch {epoch}', fontsize=14)
 
-    H_smooth_mag = plot_data['H_smooth'][0].abs().numpy()
-    H_sharp_mag  = plot_data['H_sharp'][0].abs().numpy()
-    mid = H_smooth_mag.shape[0] // 2
-    axes[0, 0].plot(np.log(H_smooth_mag[mid] + 1e-7), label='Smooth |H|', color='blue')
-    axes[0, 0].plot(np.log(H_sharp_mag[mid]  + 1e-7), label='Sharp  |H|', color='red')
-    axes[0, 0].set_title('Log-magnitude of estimated kernels (central row)')
+    H_smooth_vals = plot_data['H_smooth'][0].numpy()
+    H_sharp_vals  = plot_data['H_sharp'][0].numpy()
+    mid = H_smooth_vals.shape[0] // 2
+    axes[0, 0].plot(H_smooth_vals[mid], label='Smooth', color='blue')
+    axes[0, 0].plot(H_sharp_vals[mid],  label='Sharp',  color='red')
+    axes[0, 0].set_title('Estimated kernel radial profile (central row)')
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
 
-    axes[0, 1].plot(torch.angle(plot_data['H_smooth'][0]).numpy()[mid], label='Smooth phase', color='blue')
-    axes[0, 1].plot(torch.angle(plot_data['H_sharp'][0]).numpy()[mid],  label='Sharp  phase', color='red')
-    axes[0, 1].set_title('Phase of estimated kernels (central row)')
+    axes[0, 1].plot(np.log(np.abs(H_smooth_vals[mid]) + 1e-7), label='Smooth log|H|', color='blue')
+    axes[0, 1].plot(np.log(np.abs(H_sharp_vals[mid])  + 1e-7), label='Sharp  log|H|', color='red')
+    axes[0, 1].set_title('Log-magnitude (central row)')
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
 
-    filt_s2sh_mag = plot_data['filt_s2sh'][0].abs().numpy()
-    axes[1, 0].plot(np.log(filt_s2sh_mag[mid] + 1e-7), color='green')
-    axes[1, 0].set_title('Log-magnitude: filter smooth->sharp (central row)')
+    filt_s2sh = plot_data['filt_s2sh'][0].numpy()
+    axes[1, 0].plot(filt_s2sh[mid], color='green')
+    axes[1, 0].set_title('Filter smooth->sharp (central row)')
     axes[1, 0].grid(True, alpha=0.3)
 
-    filt_sh2s_mag = plot_data['filt_sh2s'][0].abs().numpy()
-    axes[1, 1].plot(np.log(filt_sh2s_mag[mid] + 1e-7), color='purple')
-    axes[1, 1].set_title('Log-magnitude: filter sharp->smooth (central row)')
+    filt_sh2s = plot_data['filt_sh2s'][0].numpy()
+    axes[1, 1].plot(filt_sh2s[mid], color='purple')
+    axes[1, 1].set_title('Filter sharp->smooth (central row)')
     axes[1, 1].grid(True, alpha=0.3)
 
     plt.tight_layout()

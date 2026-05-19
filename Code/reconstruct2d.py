@@ -2,12 +2,10 @@ import numpy as np
 import nibabel as nib
 import torch
 import os
-from torch.utils.data import DataLoader
-from utils import generate_images, spline_to_kernel 
+from utils import radial_to_2d
 from TestDataset import TestDataset
-from ddpTrainComplexKernel import complex_kernel_ratio, apply_complex_filter
+from ddpTrainComplexKernel import apply_complex_filter
 from KernelEstimator import KernelEstimator
-import torch.nn.functional as F
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
@@ -23,31 +21,6 @@ print('Loaded test dataset')
 
 output_dir = "/home/cxv166/PhantomTesting/reconstructions"
 os.makedirs(output_dir, exist_ok=True)
-
-def model_to_complex_kernel(out):
-    out = out.float()
-    output_size = 512
-    device = 'cuda'
-    dtype = out.dtype
-    center = output_size // 2
-    x = torch.arange(output_size, device=device, dtype=dtype) - center
-    y = torch.arange(output_size, device=device, dtype=dtype) - center
-    Y, X = torch.meshgrid(y, x, indexing='ij')
-    R = torch.sqrt(X**2 + Y**2)
-    max_profile_radius = len(out) - 1
-    grid_x = (R / max_profile_radius) * 2.0 - 1.0
-    grid_y = torch.zeros_like(grid_x)
-    grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0)
-    profile_reshaped = out.view(1, 1, 1, -1)
-    reconstructed_2d = F.grid_sample(
-        profile_reshaped, 
-        grid, 
-        mode='bilinear', 
-        padding_mode='border', 
-        align_corners=True
-    )
-    
-    return reconstructed_2d.squeeze()
 
 
 def compute_psd_from_tensor(img_tensor):
@@ -96,14 +69,14 @@ def reconstruct_volume(sample, model, device, output_dir):
         cur_sharp_psd  = compute_psd_from_tensor(I_sharp_tensor)
 
         with torch.no_grad():
-            out_smooth = model(cur_smooth_psd)
-            out_sharp = model(cur_sharp_psd)
+            out_smooth = model(cur_smooth_psd)  # (1, 256)
+            out_sharp  = model(cur_sharp_psd)   # (1, 256)
 
-            H_smooth = model_to_complex_kernel(out_smooth)
-            H_sharp  = model_to_complex_kernel(out_sharp)
+            H_smooth = radial_to_2d(out_smooth)  # (1, 512, 512)
+            H_sharp  = radial_to_2d(out_sharp)   # (1, 512, 512)
 
-            filt_s2sh = complex_kernel_ratio(H_sharp,  H_smooth)
-            filt_sh2s = complex_kernel_ratio(H_smooth, H_sharp)
+            filt_s2sh = H_sharp / (H_smooth + 1e-10)
+            filt_sh2s = H_smooth / (H_sharp  + 1e-10)
 
             I_gen_sharp  = apply_complex_filter(I_smooth_tensor, filt_s2sh, device)
             I_gen_smooth = apply_complex_filter(I_sharp_tensor,  filt_sh2s, device)

@@ -528,6 +528,49 @@ def spline_to_kernel(smooth_knots, smooth_control_points, sharp_knots, sharp_con
 
     return otf_smooth, otf_sharp
 
+def radial_to_2d(radial_profile, grid_size=512):
+    """
+    Convert a 1D radial profile to a 2D radially symmetric map via bilinear
+    interpolation (grid_sample).
+
+    Args:
+        radial_profile: (B, N) tensor sampled at N equally-spaced points
+                        from normalized radial distance 0 to 1.
+        grid_size: size of the output square grid.
+
+    Returns:
+        (B, grid_size, grid_size) 2D map.
+    """
+    batch_size = radial_profile.shape[0]
+    device = radial_profile.device
+    n_points = radial_profile.shape[-1]
+
+    center = grid_size / 2.0
+    y = torch.arange(grid_size, device=device, dtype=torch.float32) - center
+    x = torch.arange(grid_size, device=device, dtype=torch.float32) - center
+    y_grid, x_grid = torch.meshgrid(y, x, indexing='ij')
+
+    distance = torch.sqrt(x_grid**2 + y_grid**2)
+    max_distance = center * np.sqrt(2)
+    t = distance / max_distance
+    t = torch.clamp(t, 0, 1)
+
+    profile = radial_profile.view(batch_size, 1, 1, n_points)
+
+    # Map [0, 1] to [-1, 1] for grid_sample
+    grid_x = 2.0 * t - 1.0
+    grid_y = torch.zeros_like(grid_x)
+    sampling_grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0)
+    sampling_grid = sampling_grid.expand(batch_size, -1, -1, -1)
+
+    kernel_2d = F.grid_sample(
+        profile, sampling_grid,
+        mode='bilinear', padding_mode='border', align_corners=True
+    ).squeeze(1)  # (B, grid_size, grid_size)
+
+    return kernel_2d
+
+
 def symmetric_average_2d(psd_2d):
     B, C, H, W = psd_2d.shape
     center = W // 2
