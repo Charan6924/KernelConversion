@@ -96,14 +96,25 @@ def train_one_epoch(model, image_loader, optimizer, scaler, lambda_recon, device
                 F.l1_loss(I_gen_smooth, I_smooth_2.squeeze(1).float())
             )
 
-            # FT loss: L1 between derived filter ratios and smoothed real FFT ratios
-            real_s2sh = torch.abs(I_sharp_fft / (I_smooth_fft + 1e-10))
-            real_sh2s = torch.abs(I_smooth_fft / (I_sharp_fft  + 1e-10))
+            # FT loss in log-space: log|FFT_sharp| - log|FFT_smooth|
+            # No division in the graph — gradients are stable
+            log_pred_sharp = torch.log(kernel_sharp + 1e-8)
+            log_pred_smooth = torch.log(kernel_smooth + 1e-8)
 
-            real_s2sh_smooth = gaussian_blur_2d(real_s2sh.unsqueeze(1)).squeeze(1)
-            real_sh2s_smooth = gaussian_blur_2d(real_sh2s.unsqueeze(1)).squeeze(1)
+            real_sharp_mag = torch.abs(I_sharp_fft)
+            real_smooth_mag = torch.abs(I_smooth_fft)
+            log_target_sharp = torch.log(real_sharp_mag + 1e-8)
+            log_target_smooth = torch.log(real_smooth_mag + 1e-8)
 
-            ft_loss = l1_loss(filt_s2sh, real_s2sh_smooth) + l1_loss(filt_sh2s, real_sh2s_smooth)
+            log_pred_sharp_smooth = gaussian_blur_2d(log_pred_sharp)
+            log_pred_smooth_smooth = gaussian_blur_2d(log_pred_smooth)
+            log_target_sharp_smooth = gaussian_blur_2d(log_target_sharp.unsqueeze(1)).squeeze(1)
+            log_target_smooth_smooth = gaussian_blur_2d(log_target_smooth.unsqueeze(1)).squeeze(1)
+
+            ft_loss = (
+                l1_loss(log_pred_sharp_smooth, log_target_sharp_smooth) +
+                l1_loss(log_pred_smooth_smooth, log_target_smooth_smooth)
+            )
 
             loss = ft_loss + lambda_recon * recon_loss
 
@@ -185,13 +196,24 @@ def validate(model, image_loader, lambda_recon, device):
             F.l1_loss(I_gen_smooth, I_smooth_2.squeeze(1).float())
         )
 
-        real_s2sh = torch.abs(I_sharp_fft / (I_smooth_fft + 1e-10))
-        real_sh2s = torch.abs(I_smooth_fft / (I_sharp_fft  + 1e-10))
+        # FT loss in log-space
+        log_pred_sharp = torch.log(kernel_sharp + 1e-8)
+        log_pred_smooth = torch.log(kernel_smooth + 1e-8)
 
-        real_s2sh_smooth = gaussian_blur_2d(real_s2sh.unsqueeze(1)).squeeze(1)
-        real_sh2s_smooth = gaussian_blur_2d(real_sh2s.unsqueeze(1)).squeeze(1)
+        real_sharp_mag = torch.abs(I_sharp_fft)
+        real_smooth_mag = torch.abs(I_smooth_fft)
+        log_target_sharp = torch.log(real_sharp_mag + 1e-8)
+        log_target_smooth = torch.log(real_smooth_mag + 1e-8)
 
-        ft_loss = l1_loss(filt_s2sh, real_s2sh_smooth) + l1_loss(filt_sh2s, real_sh2s_smooth)
+        log_pred_sharp_smooth = gaussian_blur_2d(log_pred_sharp)
+        log_pred_smooth_smooth = gaussian_blur_2d(log_pred_smooth)
+        log_target_sharp_smooth = gaussian_blur_2d(log_target_sharp.unsqueeze(1)).squeeze(1)
+        log_target_smooth_smooth = gaussian_blur_2d(log_target_smooth.unsqueeze(1)).squeeze(1)
+
+        ft_loss = (
+            l1_loss(log_pred_sharp_smooth, log_target_sharp_smooth) +
+            l1_loss(log_pred_smooth_smooth, log_target_smooth_smooth)
+        )
 
         batch_loss = ft_loss + lambda_recon * recon_loss
 
