@@ -2,10 +2,9 @@ import numpy as np
 import nibabel as nib
 import torch
 import os
-from utils import spline_to_kernel, generate_images
+from utils import generate_images
 from TestDataset import TestDataset
-from KernelEstimator import KernelEstimator
-from utils import compute_fft
+from KernelEstimator2d import KernelEstimator
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
 checkpoint = torch.load("/home/cxv166/PhantomTesting/reconstructions/best_checkpoint_2d_kernel.pth", map_location=device)
@@ -66,23 +65,19 @@ def reconstruct_volume(sample, model, device, output_dir):
         cur_smooth_psd = compute_psd_from_tensor(I_smooth_tensor)
         cur_sharp_psd  = compute_psd_from_tensor(I_sharp_tensor)
 
-        I_smooth_fft = compute_fft(I_smooth_tensor)
-        I_sharp_fft = compute_fft(I_sharp_tensor)
-
         with torch.no_grad():
-            out_smooth = model(cur_smooth_psd)  # (1, 256)
-            out_sharp  = model(cur_sharp_psd)   # (1, 256)
+            # Separate forward passes for smooth and sharp PSDs
+            kernel_smooth = model(cur_smooth_psd)  # (1, 1, 512, 512)
+            kernel_sharp  = model(cur_sharp_psd)   # (1, 1, 512, 512)
 
-            print(out_smooth.shape)
+            # Derive filter ratios from predicted kernels
+            filt_s2sh = kernel_sharp / (kernel_smooth + 1e-10)
+            filt_sh2s = kernel_smooth / (kernel_sharp  + 1e-10)
 
-            smooth_kernel = torch.complex(out_smooth[0,:,:], out_smooth[1,:,:])
-            sharp_kernel = torch.complex(out_sharp[0,:,:], out_smooth[1,:,:])
-
-            filter_s2sh = sharp_kernel/(smooth_kernel + 1e-10)
-            filter_sh2s = smooth_kernel/(sharp_kernel + 1e-10)
-
-            I_gen_sharp = torch.fft.ifft(torch.fft.ifftshift(I_smooth_fft * filter_s2sh))
-            I_gen_smooth = torch.fft.ifft(torch.fft.ifftshift(I_sharp_fft * filter_sh2s))
+            # Generate images using filter ratios
+            I_gen_sharp, I_gen_smooth = generate_images(
+                I_smooth_tensor, I_sharp_tensor, filt_s2sh, filt_sh2s, device
+            )
 
         res_sharp  = I_gen_sharp.detach().cpu().numpy().squeeze()
         res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()
