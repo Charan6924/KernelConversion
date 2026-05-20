@@ -4,7 +4,7 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64gb
-#SBATCH --constraint=gpul40s
+#SBATCH --constraint=gpu4090
 #SBATCH --output=logs/train_%j.out
 #SBATCH --error=logs/train_%j.err
 

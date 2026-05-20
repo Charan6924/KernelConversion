@@ -5,15 +5,14 @@ import os
 from utils import spline_to_kernel, generate_images
 from TestDataset import TestDataset
 from KernelEstimator import KernelEstimator
-
+from utils import compute_fft
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
-checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_0.5/checkpoints/best_checkpoint.pth", map_location=device)
+checkpoint = torch.load("/home/cxv166/PhantomTesting/reconstructions/best_checkpoint_2d_kernel.pth", map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
 model.eval() 
 print('Loaded model successfully')
-
 data_root = "/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
 dataset = TestDataset(root_dir=data_root, preload=True)
 print('Loaded test dataset')
@@ -67,18 +66,23 @@ def reconstruct_volume(sample, model, device, output_dir):
         cur_smooth_psd = compute_psd_from_tensor(I_smooth_tensor)
         cur_sharp_psd  = compute_psd_from_tensor(I_sharp_tensor)
 
+        I_smooth_fft = compute_fft(I_smooth_tensor)
+        I_sharp_fft = compute_fft(I_sharp_tensor)
+
         with torch.no_grad():
-            smooth_curve = model(cur_smooth_psd)  # (1, 256)
-            sharp_curve  = model(cur_sharp_psd)   # (1, 256)
+            out_smooth = model(cur_smooth_psd)  # (1, 256)
+            out_sharp  = model(cur_sharp_psd)   # (1, 256)
 
-            otf_smooth, otf_sharp = spline_to_kernel(smooth_curve, sharp_curve)
+            print(out_smooth.shape)
 
-            filt_s2sh = otf_sharp / (otf_smooth + 1e-10)
-            filt_sh2s = otf_smooth / (otf_sharp  + 1e-10)
+            smooth_kernel = torch.complex(out_smooth[0,:,:], out_smooth[1,:,:])
+            sharp_kernel = torch.complex(out_sharp[0,:,:], out_smooth[1,:,:])
 
-            I_gen_sharp, I_gen_smooth = generate_images(
-                I_smooth_tensor, I_sharp_tensor, filt_s2sh, filt_sh2s, device
-            )
+            filter_s2sh = sharp_kernel/(smooth_kernel + 1e-10)
+            filter_sh2s = smooth_kernel/(sharp_kernel + 1e-10)
+
+            I_gen_sharp = torch.fft.ifft(torch.fft.ifftshift(I_smooth_fft * filter_s2sh))
+            I_gen_smooth = torch.fft.ifft(torch.fft.ifftshift(I_sharp_fft * filter_sh2s))
 
         res_sharp  = I_gen_sharp.detach().cpu().numpy().squeeze()
         res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()
@@ -95,8 +99,8 @@ def reconstruct_volume(sample, model, device, output_dir):
     nii_generated_sharp  = nib.Nifti1Image(vol_generated_sharp,  sample['sharp_affine'],  sample['sharp_header'])
     nii_generated_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])
 
-    sharp_output_path  = os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz')
-    smooth_output_path = os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz')
+    smooth_output_path  = os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz')
+    sharp_output_path = os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz')
 
     nib.save(nii_generated_sharp,  sharp_output_path)
     nib.save(nii_generated_smooth, smooth_output_path)
