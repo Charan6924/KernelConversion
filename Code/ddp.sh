@@ -2,7 +2,7 @@
 #SBATCH --job-name=adv_train
 #SBATCH --partition=cgpudlw
 #SBATCH --nodelist=cgput004
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=6    # can keep this
 #SBATCH --mem=120G            # scale down from 120G to be safe
 #SBATCH --time=72:00:00
@@ -15,7 +15,4 @@ mkdir -p /home/cxv166/PhantomTesting/logs
 
 cd /home/cxv166/PhantomTesting/Code
 
-torchrun \
-    --standalone \
-    --nproc_per_node=4 \
-    ddpTrainComplexKernel.py
+uv run train.py

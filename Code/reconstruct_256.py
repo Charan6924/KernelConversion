@@ -12,7 +12,7 @@ from utils import compute_fft
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
-checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_filter/checkpoints/best_checkpoint.pth", map_location=device)
+checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_kernel256/checkpoints/best_checkpoint.pth", map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
 model.eval()
@@ -126,7 +126,6 @@ def reconstruct_volume(sample, model, device, output_dir, plot_dir,
             out_smooth = model(cur_smooth_psd)  # (1, 256)
             out_sharp  = model(cur_sharp_psd)   # (1, 256)
 
-        # ── plot model outputs for selected slices ──────────────────────────
         if k % plot_every_n_slices == 0:
             plot_model_outputs(
                 out_smooth, out_sharp,
@@ -134,6 +133,7 @@ def reconstruct_volume(sample, model, device, output_dir, plot_dir,
                 slice_idx=k,
                 plot_dir=plot_dir
             )
+
         k_smooth, k_sharp = spline_to_kernel(out_smooth, out_sharp)
         filt_sh2s   = k_smooth / (k_sharp  + 1e-10)
         filter_s2sh = k_sharp  / (k_smooth + 1e-10)
@@ -152,14 +152,12 @@ def reconstruct_volume(sample, model, device, output_dir, plot_dir,
         vol_generated_sharp[:,  :, k] = ((res_sharp.clip(0, 1)  * 4000) - 1000).clip(-1000, 3000)
         vol_generated_smooth[:, :, k] = ((res_smooth.clip(0, 1) * 4000) - 1000).clip(-1000, 3000)
 
-    # ── save reconstructed volumes ────────────────────────────────────────────
     nii_sharp  = nib.Nifti1Image(vol_generated_sharp,  sample['sharp_affine'],  sample['sharp_header'])
     nii_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])
 
     nib.save(nii_sharp,  os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz'))
     nib.save(nii_smooth, os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz'))
 
-    # ── save residuals ────────────────────────────────────────────────────────
     residual_sharp  = data_sharp  - vol_generated_sharp
     residual_smooth = data_smooth - vol_generated_smooth
 
@@ -172,5 +170,19 @@ def reconstruct_volume(sample, model, device, output_dir, plot_dir,
         os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}_residual.nii.gz')
     )
 
-    print(f'Saved reconstructions for volume {volume_id}')
+    print(f'Saved reconstructions and residuals for volume {volume_id}')
     print(f'Plots saved to: {plot_dir}')
+
+
+for idx in range(len(dataset)):
+    print(f'\nProcessing volume {idx+1}/{len(dataset)}')
+    sample = dataset[idx]
+    reconstruct_volume(
+        sample, model, device,
+        output_dir=output_dir,
+        plot_dir=plot_dir,
+        plot_every_n_slices=10   
+    )
+
+print(f'\nReconstruction complete! All files saved to: {output_dir}')
+print(f'Model output plots saved to: {plot_dir}')

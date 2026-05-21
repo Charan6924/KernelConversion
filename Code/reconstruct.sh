@@ -1,27 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=kernel_reconstruction
-#SBATCH --account=dlw
-#SBATCH --partition=gpu
+#SBATCH --job-name=inferences
+#SBATCH --partition=cgpudlw
+#SBATCH --nodelist=cgput004
 #SBATCH --gres=gpu:1
-#SBATCH --mem=64gb
-#SBATCH --constraint=gpu4090
-#SBATCH --output=logs/train_%j.out
-#SBATCH --error=logs/train_%j.err
+#SBATCH --cpus-per-task=6    # can keep this
+#SBATCH --mem=120G            # scale down from 120G to be safe
+#SBATCH --time=72:00:00
+#SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
+#SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
 
+source /home/cxv166/PhantomTesting/.venv/bin/activate
 
-# Activate virtual environment if you have one
-# source ~/venv/bin/activate
+mkdir -p /home/cxv166/PhantomTesting/logs
 
-# Navigate to code directory
 cd /home/cxv166/PhantomTesting/Code
 
-# Print job info
-echo "Job ID: $SLURM_JOB_ID"
-echo "Node: $SLURM_NODELIST"
-echo "GPU: $CUDA_VISIBLE_DEVICES"
-echo "Start time: $(date)"
-
-# Run training
-uv run reconstruct2d.py
-
-echo "End time: $(date)"
+uv run reconstruct_256.py
