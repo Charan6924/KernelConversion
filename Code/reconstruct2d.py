@@ -4,10 +4,10 @@ import torch
 import os
 from utils import generate_images
 from TestDataset import TestDataset
-from KernelEstimator2d import KernelEstimator
+from KernelEstimator import KernelEstimator
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
-checkpoint = torch.load("/home/cxv166/PhantomTesting/reconstructions/best_checkpoint_2d_kernel.pth", map_location=device)
+checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_0.5/checkpoints/best_checkpoint.pth", map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
 model.eval() 

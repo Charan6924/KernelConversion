@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn import functional as F
 from PSDDataset import PSDDataset
-from KernelEstimator2d import KernelEstimator
+from filterModel import FilterEstimator          # ← swapped
 from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, generate_images, gaussian_blur_2d
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,8 +44,6 @@ def cleanup_ddp():
 
 def all_reduce_stats(stats: dict) -> dict:
     for k, v in stats.items():
-        if k == 'nan_batches':
-            continue
         t = torch.tensor(v, dtype=torch.float32, device='cuda')
         dist.all_reduce(t, op=dist.ReduceOp.AVG)
         stats[k] = t.item()
@@ -55,16 +53,16 @@ def all_reduce_stats(stats: dict) -> dict:
 def train_one_epoch(model, image_loader, optimizer, scaler, lambda_recon, device, epoch, is_main):
     model.train()
 
-    running_loss   = 0.0
-    running_ft     = 0.0
-    running_recon  = 0.0
-    running_grad   = 0.0
-    n_batches      = 0
+    running_loss  = 0.0
+    running_ft    = 0.0
+    running_recon = 0.0
+    running_grad  = 0.0
+    n_batches     = 0
 
     l1_loss = nn.L1Loss()
-    loader = tqdm(image_loader, desc="Training", unit="batch") if is_main else image_loader
+    loader  = tqdm(image_loader, desc="Training", unit="batch") if is_main else image_loader
 
-    for i, (I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2) in enumerate(loader):
+    for I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2 in loader:
         I_smooth_1 = I_smooth_1.to(device, non_blocking=True)
         I_sharp_1  = I_sharp_1.to(device, non_blocking=True)
         I_smooth_2 = I_smooth_2.to(device, non_blocking=True)
@@ -76,21 +74,25 @@ def train_one_epoch(model, image_loader, optimizer, scaler, lambda_recon, device
             I_smooth_fft = compute_fft(I_smooth_1)
             I_sharp_fft  = compute_fft(I_sharp_1)
 
+            # Ground-truth filters: smoothed FFT magnitude ratios
+            real_s2sh = gaussian_blur_2d(
+                torch.abs(I_sharp_fft  / (I_smooth_fft + 1e-10)).unsqueeze(1)
+            ).squeeze(1)
+            real_sh2s = gaussian_blur_2d(
+                torch.abs(I_smooth_fft / (I_sharp_fft  + 1e-10)).unsqueeze(1)
+            ).squeeze(1)
+
         with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=True):
-            # Separate forward passes for smooth and sharp PSDs
-            kernel_smooth = model(psd_smooth)  # (B, 1, 512, 512)
-            kernel_sharp  = model(psd_sharp)   # (B, 1, 512, 512)
+            # FilterEstimator takes both PSDs and directly outputs the two filters
+            filt_s2sh, filt_sh2s = model(psd_smooth, psd_sharp)  # (B,1,H,W) each
 
-            # Derive filter ratios from predicted kernels
-            filt_s2sh = kernel_sharp / (kernel_smooth + 1e-10)    # smooth→sharp
-            filt_sh2s = kernel_smooth / (kernel_sharp  + 1e-10)   # sharp→smooth
+            # FT loss: direct supervision against smoothed real FFT ratios
+            ft_loss = l1_loss(filt_s2sh, real_s2sh) + l1_loss(filt_sh2s, real_sh2s)
 
-            # Generate images using derived filter ratios
+            # Reconstruction loss
             I_gen_sharp, I_gen_smooth = generate_images(
                 I_smooth_1, I_sharp_2, filt_s2sh, filt_sh2s, device
             )
-
-            # Reconstruction loss
             recon_loss = (
                 F.l1_loss(I_gen_sharp,  I_sharp_1.squeeze(1).float()) +
                 F.l1_loss(I_gen_smooth, I_smooth_2.squeeze(1).float())
@@ -132,29 +134,28 @@ def train_one_epoch(model, image_loader, optimizer, scaler, lambda_recon, device
             grad_norm = compute_gradient_norm(model)
             optimizer.step()
 
-        running_loss   += loss.item()
-        running_ft     += ft_loss.item()
-        running_recon  += recon_loss.item()
-        running_grad   += grad_norm
-        n_batches      += 1
+        running_loss  += loss.item()
+        running_ft    += ft_loss.item()
+        running_recon += recon_loss.item()
+        running_grad  += grad_norm
+        n_batches     += 1
 
     denom = max(n_batches, 1)
     stats = {
-        'total_loss':  running_loss  / denom,
-        'ft_loss':     running_ft    / denom,
-        'recon_loss':  running_recon / denom,
-        'grad_norm':   running_grad  / denom,
+        'total_loss': running_loss  / denom,
+        'ft_loss':    running_ft    / denom,
+        'recon_loss': running_recon / denom,
+        'grad_norm':  running_grad  / denom,
     }
-
     plot_data = {
-        'I_gen_sharp':    I_gen_sharp.detach().cpu(),
-        'I_gen_smooth':   I_gen_smooth.detach().cpu(),
-        'I_sharp_1':      I_sharp_1.detach().cpu(),
-        'I_smooth_2':     I_smooth_2.detach().cpu(),
-        'kernel_smooth':  kernel_smooth.detach().cpu(),
-        'kernel_sharp':   kernel_sharp.detach().cpu(),
-        'filt_s2sh':      filt_s2sh.detach().cpu(),
-        'filt_sh2s':      filt_sh2s.detach().cpu(),
+        'I_gen_sharp':  I_gen_sharp.detach().cpu(),
+        'I_gen_smooth': I_gen_smooth.detach().cpu(),
+        'I_sharp_1':    I_sharp_1.detach().cpu(),
+        'I_smooth_2':   I_smooth_2.detach().cpu(),
+        'filt_s2sh':    filt_s2sh.detach().cpu(),
+        'filt_sh2s':    filt_sh2s.detach().cpu(),
+        'real_s2sh':    real_s2sh.detach().cpu(),
+        'real_sh2s':    real_sh2s.detach().cpu(),
     }
     return stats, plot_data
 
@@ -181,16 +182,20 @@ def validate(model, image_loader, lambda_recon, device):
         I_smooth_fft = compute_fft(I_smooth_1)
         I_sharp_fft  = compute_fft(I_sharp_1)
 
-        kernel_smooth = model(psd_smooth)  # (B, 1, 512, 512)
-        kernel_sharp  = model(psd_sharp)   # (B, 1, 512, 512)
+        real_s2sh = gaussian_blur_2d(
+            torch.abs(I_sharp_fft  / (I_smooth_fft + 1e-10)).unsqueeze(1)
+        ).squeeze(1)
+        real_sh2s = gaussian_blur_2d(
+            torch.abs(I_smooth_fft / (I_sharp_fft  + 1e-10)).unsqueeze(1)
+        ).squeeze(1)
 
-        filt_s2sh = kernel_sharp / (kernel_smooth + 1e-10)
-        filt_sh2s = kernel_smooth / (kernel_sharp  + 1e-10)
+        filt_s2sh, filt_sh2s = model(psd_smooth, psd_sharp)
+
+        ft_loss = l1_loss(filt_s2sh, real_s2sh) + l1_loss(filt_sh2s, real_sh2s)
 
         I_gen_sharp, I_gen_smooth = generate_images(
             I_smooth_1, I_sharp_2, filt_s2sh, filt_sh2s, device
         )
-
         recon_loss = (
             F.l1_loss(I_gen_sharp,  I_sharp_1.squeeze(1).float()) +
             F.l1_loss(I_gen_smooth, I_smooth_2.squeeze(1).float())
@@ -224,8 +229,8 @@ def validate(model, image_loader, lambda_recon, device):
 
     denom = max(num_batches, 1)
     return {
-        'total_loss': total_loss / denom,
-        'ft_loss':    total_ft   / denom,
+        'total_loss': total_loss  / denom,
+        'ft_loss':    total_ft    / denom,
         'recon_loss': total_recon / denom,
     }
 
@@ -237,49 +242,56 @@ def plot_epoch_results(plot_data, epoch, out_dir):
     vis_dir = out_dir / "visualization"
     vis_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(2, 3, figsize=(14, 9))
-    fig.suptitle(f'Epoch {epoch} — Predicted Kernels + Filters', fontsize=14)
+    fig, axes = plt.subplots(3, 3, figsize=(16, 12))
+    fig.suptitle(f'Epoch {epoch} — FilterEstimator vs GT Filters', fontsize=14)
 
-    kernel_s_np = plot_data['kernel_smooth'][0, 0].numpy()  # (512, 512)
-    kernel_h_np = plot_data['kernel_sharp'][0, 0].numpy()   # (512, 512)
+    mid = plot_data['filt_s2sh'].shape[-1] // 2
 
-    im0 = axes[0, 0].imshow(kernel_s_np, cmap='viridis')
-    axes[0, 0].set_title('Kernel smooth')
+    # ── Row 0: predicted filters ──────────────────────────────────────────────
+    im0 = axes[0, 0].imshow(plot_data['filt_s2sh'][0, 0].numpy(), cmap='hot')
+    axes[0, 0].set_title('Pred filter  smooth→sharp')
     axes[0, 0].axis('off')
     plt.colorbar(im0, ax=axes[0, 0], fraction=0.046)
 
-    im1 = axes[0, 1].imshow(kernel_h_np, cmap='viridis')
-    axes[0, 1].set_title('Kernel sharp')
+    im1 = axes[0, 1].imshow(plot_data['filt_sh2s'][0, 0].numpy(), cmap='hot')
+    axes[0, 1].set_title('Pred filter  sharp→smooth')
     axes[0, 1].axis('off')
     plt.colorbar(im1, ax=axes[0, 1], fraction=0.046)
 
-    mid = kernel_s_np.shape[0] // 2
-    axes[0, 2].plot(kernel_s_np[mid], label='K smooth', color='blue')
-    axes[0, 2].plot(kernel_h_np[mid], label='K sharp', color='red')
-    axes[0, 2].set_title('Central row profile')
-    axes[0, 2].legend()
-    axes[0, 2].grid(True, alpha=0.3)
+    axes[0, 2].plot(plot_data['filt_s2sh'][0, 0, mid].numpy(), label='pred s→sh', color='tomato')
+    axes[0, 2].plot(plot_data['filt_sh2s'][0, 0, mid].numpy(), label='pred sh→s', color='steelblue')
+    axes[0, 2].set_title('Predicted — central row profile')
+    axes[0, 2].legend(); axes[0, 2].grid(True, alpha=0.3)
 
-    I_gen_sharp  = plot_data['I_gen_sharp'][0].numpy()
-    I_gen_smooth = plot_data['I_gen_smooth'][0].numpy()
-
-    axes[1, 0].imshow(I_gen_sharp, cmap='gray', vmin=0, vmax=1)
-    axes[1, 0].set_title('Generated sharp (from smooth)')
+    # ── Row 1: GT filters ─────────────────────────────────────────────────────
+    im3 = axes[1, 0].imshow(plot_data['real_s2sh'][0].numpy(), cmap='hot')
+    axes[1, 0].set_title('GT filter  smooth→sharp')
     axes[1, 0].axis('off')
+    plt.colorbar(im3, ax=axes[1, 0], fraction=0.046)
 
-    axes[1, 1].imshow(I_gen_smooth, cmap='gray', vmin=0, vmax=1)
-    axes[1, 1].set_title('Generated smooth (from sharp)')
+    im4 = axes[1, 1].imshow(plot_data['real_sh2s'][0].numpy(), cmap='hot')
+    axes[1, 1].set_title('GT filter  sharp→smooth')
     axes[1, 1].axis('off')
+    plt.colorbar(im4, ax=axes[1, 1], fraction=0.046)
 
-    I_sharp_1  = plot_data['I_sharp_1'][0].numpy()
-    I_smooth_2 = plot_data['I_smooth_2'][0].numpy()
-    diff_sharp = np.abs(I_gen_sharp - I_sharp_1)
-    diff_smooth = np.abs(I_gen_smooth - I_smooth_2)
-    axes[1, 2].plot(diff_sharp[mid], label='|sharp diff|', color='orange')
-    axes[1, 2].plot(diff_smooth[mid], label='|smooth diff|', color='green')
-    axes[1, 2].set_title('Central row |error|')
-    axes[1, 2].legend()
-    axes[1, 2].grid(True, alpha=0.3)
+    axes[1, 2].plot(plot_data['real_s2sh'][0, mid].numpy(), label='GT s→sh', color='tomato',    linestyle='--')
+    axes[1, 2].plot(plot_data['real_sh2s'][0, mid].numpy(), label='GT sh→s', color='steelblue', linestyle='--')
+    axes[1, 2].set_title('GT — central row profile')
+    axes[1, 2].legend(); axes[1, 2].grid(True, alpha=0.3)
+
+    # ── Row 2: reconstructed images + error ───────────────────────────────────
+    axes[2, 0].imshow(plot_data['I_gen_sharp'][0].numpy(),  cmap='gray', vmin=0, vmax=1)
+    axes[2, 0].set_title('Generated sharp'); axes[2, 0].axis('off')
+
+    axes[2, 1].imshow(plot_data['I_gen_smooth'][0].numpy(), cmap='gray', vmin=0, vmax=1)
+    axes[2, 1].set_title('Generated smooth'); axes[2, 1].axis('off')
+
+    diff_sharp  = np.abs(plot_data['I_gen_sharp'][0].numpy()  - plot_data['I_sharp_1'][0].numpy())
+    diff_smooth = np.abs(plot_data['I_gen_smooth'][0].numpy() - plot_data['I_smooth_2'][0].numpy())
+    axes[2, 2].plot(diff_sharp[mid],  label='|sharp diff|',  color='orange')
+    axes[2, 2].plot(diff_smooth[mid], label='|smooth diff|', color='green')
+    axes[2, 2].set_title('Central row |error|')
+    axes[2, 2].legend(); axes[2, 2].grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(vis_dir / f'epoch_{epoch:03d}.png', dpi=150, bbox_inches='tight')
@@ -314,7 +326,7 @@ def main():
 
     if is_main:
         print(f"Device: {device}  |  world_size: {world_size}  |  lr={cfg.lr}  |  epochs={cfg.epochs}")
-        print(f"Model: KernelEstimator2d (direct 2D filter output, FilterEstimator-style)")
+        print(f"Model: FilterEstimator (direct filter output, FT loss supervised)")
         print(cfg)
 
     img_dataset = PSDDataset(root_dir=cfg.image_root, preload=False)
@@ -333,28 +345,25 @@ def main():
     if is_main:
         print(f"Images — train: {len(img_train)}, val: {len(img_val)}")
 
-    model    = KernelEstimator().to(device)
-    model    = DDP(model, device_ids=[local_rank], broadcast_buffers=False)
+    model = FilterEstimator().to(device)
+    model = DDP(model, device_ids=[local_rank], broadcast_buffers=False)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=cfg.sched_factor,
         patience=cfg.sched_patience, min_lr=cfg.sched_min_lr
     )
-
     scaler = torch.amp.GradScaler('cuda')
 
     if is_main:
-        print(f"Generator params: {sum(p.numel() for p in model.parameters()):,}")
+        print(f"FilterEstimator params: {sum(p.numel() for p in model.parameters()):,}")
 
     start_epoch = 0
     best_val    = float('inf')
 
     if cfg.resume:
         ckpt_path = ckpt_dir / "latest_checkpoint.pth"
-        raw_model = model.module
-        loaded = load_checkpoint(ckpt_path, raw_model, optimizer, scaler)
+        loaded = load_checkpoint(ckpt_path, model.module, optimizer, scaler)
         if loaded:
             start_epoch = loaded['epoch'] + 1
             best_val    = loaded['best_val_loss']
@@ -363,9 +372,7 @@ def main():
 
     for epoch in range(start_epoch, cfg.epochs):
         ep = epoch + 1
-
         img_train_sampler.set_epoch(epoch)
-
         cur_lr = optimizer.param_groups[0]['lr']
 
         if is_main:
@@ -376,18 +383,14 @@ def main():
             optimizer, scaler, cfg.lambda_recon,
             device, epoch=ep, is_main=is_main
         )
-        val_stats = validate(
-            model, img_val_loader, cfg.lambda_recon, device
-        )
+        val_stats = validate(model, img_val_loader, cfg.lambda_recon, device)
 
         train_stats = all_reduce_stats(train_stats)
         val_stats   = all_reduce_stats(val_stats)
 
         if is_main:
             plot_epoch_results(plot_data, ep, out_dir)
-
             scheduler.step(val_stats['total_loss'])
-
             new_lr = optimizer.param_groups[0]['lr']
 
             if new_lr < cur_lr:
@@ -396,7 +399,7 @@ def main():
             csv_writer.writerow([
                 ep, new_lr,
                 train_stats['total_loss'], train_stats['ft_loss'], train_stats['recon_loss'], train_stats['grad_norm'],
-                val_stats['total_loss'], val_stats['ft_loss'], val_stats['recon_loss'],
+                val_stats['total_loss'],   val_stats['ft_loss'],   val_stats['recon_loss'],
             ])
             csv_file.flush()
 
@@ -414,10 +417,9 @@ def main():
                 best_val = val_stats['total_loss']
                 print(f"  ** new best val loss: {best_val:.6f} **")
 
-            raw_model = model.module
             ckpt = {
                 'epoch':                ep,
-                'model_state_dict':     raw_model.state_dict(),
+                'model_state_dict':     model.module.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'scaler_state_dict':    scaler.state_dict(),

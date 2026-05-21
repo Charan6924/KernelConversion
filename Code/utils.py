@@ -493,15 +493,6 @@ def compute_fft(image, device='cuda'):
 def spline_to_kernel(smooth_curve, sharp_curve, grid_size=512):
     """
     Convert 1D radial profiles to 2D radially symmetric OTFs.
-
-    Args:
-        smooth_curve: (B, N) radial profile for the smooth kernel
-        sharp_curve:  (B, N) radial profile for the sharp kernel
-        grid_size: size of the output square grid.
-
-    Returns:
-        otf_smooth: (B, grid_size, grid_size) real-valued OTF, clamped >= 1e-6
-        otf_sharp:  (B, grid_size, grid_size) real-valued OTF, clamped >= 1e-6
     """
     otf_smooth = radial_to_2d(smooth_curve, grid_size).clamp(min=1e-6)
     otf_sharp  = radial_to_2d(sharp_curve,  grid_size).clamp(min=1e-6)
@@ -509,13 +500,7 @@ def spline_to_kernel(smooth_curve, sharp_curve, grid_size=512):
 
 def radial_to_2d(radial_profile, grid_size=512):
     """
-    Convert a 1D radial profile to a 2D radially symmetric map via bilinear
-    interpolation (grid_sample).
-
-    Args:
-        radial_profile: (B, N) tensor sampled at N equally-spaced points
-                        from normalized radial distance 0 to 1.
-        grid_size: size of the output square grid.
+    Convert a 1D mtf into a 2d 512x512 grid that represents the 2d covolutional kernel
 
     Returns:
         (B, grid_size, grid_size) 2D map.
