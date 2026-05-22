@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 
-df = pd.read_csv('/home/cxv166/PhantomTesting/Code/training_output_0.5/training_metrics_20260519_071443.csv')
+df = pd.read_csv('/home/cxv166/PhantomTesting/Code/training_output_kernel256/training_metrics_20260521_084853.csv')
 
 print(df.head())
 
-plt.plot(df['val_ft_loss'])
-plt.title('val_ft_loss')
+plt.plot(df['train_ft_loss'])
+plt.title('f_loss')
 plt.savefig('ft_loss.png')
 plt.clf()
 
@@ -16,11 +16,6 @@ plt.title('val recon loss')
 plt.savefig('recon_loss')
 plt.clf()
 
-
-plt.plot(df['val_g_adv_loss'])
-plt.title('val_g_adv_loss')
-plt.savefig('g_adv__loss')
-plt.clf()
 
 plt.plot(df['val_total_loss'])
 plt.title('val total loss')
