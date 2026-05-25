@@ -172,7 +172,12 @@ class KernelEstimator(nn.Module):
         raw_control = raw_out[:, :10]
         raw_knots   = raw_out[:, 10:]
 
-        control    = F.softplus(raw_control, beta=1.0) * self.control_scale
-        full_knots = self.knot_layer(raw_knots, control.shape[0], control.device)
+        knot_deltas = F.softplus(raw_knots)          # positive steps
+        knots = torch.cumsum(knot_deltas, dim=1)  # strictly increasing
 
-        return full_knots, control
+        # Control points — positive, unconstrained magnitude
+        control = F.softplus(raw_control)
+        first   = torch.ones(control.shape[0], 1, device=control.device)
+        control = torch.cat([first, control[:, 1:]], dim=1)
+
+        return knots, control

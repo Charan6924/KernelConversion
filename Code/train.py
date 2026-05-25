@@ -249,7 +249,7 @@ def main():
     ])
 
     print(f"Device: {device}  |  lr={cfg.lr}  |  epochs={cfg.epochs}")
-    print(f"Model: KernelEstimator (256 radial profile -> radial_to_2d -> ratio), distilled from FilterEstimator")
+    print(f"Model: KernelEstimator (256 point spline -> radial_to_2d -> ratio), distilled from FilterEstimator")
     print(cfg)
 
     img_dataset = PSDDataset(root_dir=cfg.image_root, preload=False)
