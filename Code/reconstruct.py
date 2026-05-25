@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
-checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_kernel2d/checkpoints/best_checkpoint.pth", map_location=device)
+checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_kernel2d/checkpoints/epoch_9_checkpoint.pth", map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
 model.eval() 
@@ -149,8 +149,8 @@ def reconstruct_volume(sample, model, device, output_dir, plot_dir):
     nii_generated_sharp  = nib.Nifti1Image(vol_generated_sharp,  sample['sharp_affine'],  sample['sharp_header'])
     nii_generated_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])
 
-    sharp_output_path  = os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz')
-    smooth_output_path = os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz')
+    sharp_output_path  = os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz')
+    smooth_output_path = os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz')
 
     nib.save(nii_generated_sharp,  sharp_output_path)
     nib.save(nii_generated_smooth, smooth_output_path)

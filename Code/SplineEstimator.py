@@ -142,7 +142,6 @@ class KernelEstimator(nn.Module):
         )
 
         self.knot_layer = FixedSplineLayer(degree=3)
-        self.control_scale = nn.Parameter(torch.tensor(1.5))
 
     def forward(self, psd):
         s0, x = self.enc0(psd)  # s0:(B, 32,512,512)  x:(B, 32,256,256)
@@ -172,12 +171,7 @@ class KernelEstimator(nn.Module):
         raw_control = raw_out[:, :10]
         raw_knots   = raw_out[:, 10:]
 
-        knot_deltas = F.softplus(raw_knots)          # positive steps
-        knots = torch.cumsum(knot_deltas, dim=1)  # strictly increasing
+        control    = F.softplus(raw_control, beta=1.0)
+        full_knots = self.knot_layer(raw_knots, control.shape[0], control.device)
 
-        # Control points — positive, unconstrained magnitude
-        control = F.softplus(raw_control)
-        first   = torch.ones(control.shape[0], 1, device=control.device)
-        control = torch.cat([first, control[:, 1:]], dim=1)
-
-        return knots, control
+        return full_knots, control
