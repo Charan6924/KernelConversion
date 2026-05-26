@@ -1,78 +1,65 @@
-from KernelEstimator import KernelEstimator
-from filterModel import FilterEstimator
-from utils import spline_to_kernel, get_torch_spline, generate_images, compute_fft, compute_psd
-from PSDDataset import PSDDataset
-from torch.utils.data import DataLoader
-from scipy.ndimage import uniform_filter1d
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from Dataset import MTFPSDDataset
+from SplineEstimator import KernelEstimator
+from utils import get_torch_spline
+import os
 import matplotlib.pyplot as plt
+import numpy as np
 
-device = 'cuda'
-
-# --- FilterEstimator ---
-model = FilterEstimator()
-checkpoint = torch.load('/home/cxv166/KernelConversionResearch/training_filter_model/checkpoints/epoch_17.pth', map_location=device)
+model = KernelEstimator()
+model.to('cuda')
+checkpoint = torch.load('/home/cxv166/PhantomTesting/Code/training_output_kernel2d/checkpoints/best_checkpoint.pth')
 model.load_state_dict(checkpoint['model_state_dict'])
-model.to(device)
-model.eval()
+print('loaded model')
+mtf_dataset = MTFPSDDataset(mtf_folder = '/home/cxv166/PhantomTesting/MTF_Results_Output',psd_folder = '/home/cxv166/PhantomTesting/PSD_Results_Output')
+dict = {'B': 0, 'C': 1, 'CB': 2, 'D': 3, 'E': 4, 'YA': 5, 'YB': 6}
+rev = {v: k for k, v in dict.items()} 
+_,_,test_loader = mtf_dataset.build_dataloaders(mtf_folder = '/home/cxv166/PhantomTesting/MTF_Results_Output',psd_folder = '/home/cxv166/PhantomTesting/PSD_Results_Output')
+print('created dataloader')
+os.makedirs('plots', exist_ok=True)
 
-dataset = PSDDataset(root_dir=r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root")
-loader  = DataLoader(dataset=dataset, batch_size=32)
-I_smooth, I_sharp, _, _ = next(iter(loader))
 
-psd_smooth = compute_psd(I_smooth, device='cuda').to(device, non_blocking=True)
-psd_sharp  = compute_psd(I_sharp,  device='cuda').to(device, non_blocking=True)
+input_profile, target_mtf, kernel_idx = next(iter(test_loader))
+input_profile = input_profile.to('cuda')
+target_mtf = target_mtf.to('cuda')
+kernel_idx = kernel_idx.to('cuda')
+knots, control_points = model(input_profile)
+mtf = get_torch_spline(knots,control_points,num_points=64)
 
-with torch.no_grad():
-    filters_s2sh, filters_sh2s = model(psd_smooth, psd_sharp)
+mtf_cpu        = mtf.detach().cpu().numpy()          # (24, 64)
+target_mtf_cpu = target_mtf.detach().cpu().numpy()   # (24, 64)
+kernel_idx_cpu = kernel_idx.detach().cpu().numpy()   # (24,)
 
-# --- KernelEstimator ---
-kernel_model = KernelEstimator()
-checkpoint = torch.load('/home/cxv166/PhantomTesting/Code/training_output_kernel256/checkpoints/best_checkpoint.pth', map_location=device)
-kernel_model.load_state_dict(checkpoint['model_state_dict'])
-kernel_model.to(device)
-kernel_model.eval()
+x = np.linspace(0, 1, 64)
 
-with torch.no_grad():
-    out_sharp  = kernel_model(psd_sharp)
-    out_smooth = kernel_model(psd_smooth)
+for i in range(len(mtf_cpu)):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-out_sharp_np  = out_sharp[0].detach().cpu().numpy()
-out_smooth_np = out_smooth[0].detach().cpu().numpy()
-f_s2sh_np     = filters_s2sh[0].detach().cpu().numpy()
-f_sh2s_np     = filters_sh2s[0].detach().cpu().numpy()
+    kernel_name = rev.get(int(kernel_idx_cpu[i]), f"idx_{int(kernel_idx_cpu[i])}")
+    fig.suptitle(f"Sample {i}  |  Kernel: {kernel_name}", fontsize=13, fontweight='bold')
 
-# Smooth
-out_sharp_smooth  = uniform_filter1d(out_sharp_np,  size=11)
-out_smooth_smooth = uniform_filter1d(out_smooth_np, size=11)
+    # --- Predicted MTF ---
+    axes[0].plot(x, mtf_cpu[i].squeeze(), color='steelblue', linewidth=2)
+    axes[0].set_title("Predicted MTF")
+    axes[0].set_xlabel("Normalised Spatial Frequency")
+    axes[0].set_ylabel("MTF")
+    axes[0].set_ylim(0, 1.05)
+    axes[0].grid(True, alpha=0.3)
 
-# --- MTFs side by side ---
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+    # --- Target MTF ---
+    axes[1].plot(x, target_mtf_cpu[i], color='tomato', linewidth=2)
+    axes[1].set_title("Target MTF")
+    axes[1].set_xlabel("Normalised Spatial Frequency")
+    axes[1].set_ylabel("MTF")
+    axes[1].set_ylim(0, 1.05)
+    axes[1].grid(True, alpha=0.3)
 
-ax1.plot(out_sharp_smooth, color='steelblue')
-ax1.set_title('MTF Sharp')
-ax1.set_xlabel('Frequency bin')
-ax1.set_ylabel('MTF')
-ax1.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_path = f"plots/sample_{i:03d}_kernel_{kernel_name}.png"
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved: {save_path}")
 
-ax2.plot(out_smooth_smooth, color='tomato')
-ax2.set_title('MTF Smooth')
-ax2.set_xlabel('Frequency bin')
-ax2.grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.savefig('Mtf_comparison.png', dpi=150)
-plt.clf()
-
-# --- Filter plots ---
-plt.imshow(f_s2sh_np, cmap='hot')
-plt.title('Filter smooth to sharp')
-plt.colorbar()
-plt.savefig('s2sh.png')
-plt.clf()
-
-plt.imshow(f_sh2s_np, cmap='hot')
-plt.title('Filter sharp to smooth')
-plt.colorbar()
-plt.savefig('sh2s.png')
-plt.clf()
+print(f"\nAll {len(mtf_cpu)} plots saved to ./plots/")
