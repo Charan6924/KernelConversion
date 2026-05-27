@@ -31,7 +31,7 @@ from packaging import version
 # import matplotlib.pyplot as plt
 from sklearn import datasets
 import cv2
-from models import networks
+import models.networks as networks
 from scipy.ndimage import zoom
 
 class ClipNormalize(object):
@@ -107,15 +107,15 @@ def inverse_fourier_transform(image):
 
 if __name__ == '__main__':
     netG = networks.define_G(1, 1, 64, 'resnet_KC', 'instance', not True, 'xavier', 0.02, False, False, [])
-    pth_path = r"D:\Charan work file\For Charan\kernelConversion\code\latest_net_G.pth" # dir in HPC, I believe lab members can access it.
+    pth_path = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/KC_baseline.pth" # dir in HPC, I believe lab members can access it.
     state_dict = torch.load(pth_path, map_location=torch.device('cpu')) 
     netG.load_state_dict(state_dict)
     netG.eval()
 
-    processed_dir_smooth = r"D:\Charan work file\PhantomTesting\testA"
-    processed_dir_sharp = r"D:\Charan work file\PhantomTesting\testB"
-    sav_smooth_dir = r"D:\Charan work file\PhantomTesting\testA_fake"
-    sav_sharp_dir = r"D:\Charan work file\PhantomTesting\testB_fake"
+    processed_dir_smooth = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testA"
+    processed_dir_sharp = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testB"
+    sav_smooth_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_2d/testA_fake"
+    sav_sharp_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_2d/testB_fake"
 
     smooth_paths = sorted([os.path.join(processed_dir_smooth, name) for name in os.listdir(processed_dir_smooth)])
     sav_smooth_pathes = sorted([os.path.join(sav_smooth_dir, name) for name in os.listdir(processed_dir_smooth)])

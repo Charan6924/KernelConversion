@@ -12,7 +12,7 @@ from utils.utils import compute_fft
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
-checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_kernel256/checkpoints/best_checkpoint.pth", map_location=device)
+checkpoint = torch.load("/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/training_output_kernel256/checkpoints/best_checkpoint.pth", map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
 model.eval()
@@ -22,10 +22,18 @@ data_root = "/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
 dataset = TestDataset(root_dir=data_root, preload=True)
 print('Loaded test dataset')
 
-output_dir = "/home/cxv166/PhantomTesting/reconstructions"
+output_dir = "/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_256"
 plot_dir   = os.path.join(output_dir, "model_output_plots")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(plot_dir,   exist_ok=True)
+
+testA_fake_dir     = os.path.join(output_dir, "testA_fake")
+testB_fake_dir     = os.path.join(output_dir, "testB_fake")
+testA_residual_dir = os.path.join(output_dir, "testA_residuals")
+testB_residual_dir = os.path.join(output_dir, "testB_residuals")
+
+for d in [testA_fake_dir, testB_fake_dir, testA_residual_dir, testB_residual_dir]:
+    os.makedirs(d, exist_ok=True)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -50,15 +58,8 @@ def extract_kernel_name(filename):
 
 def plot_model_outputs(out_smooth, out_sharp, volume_id, smooth_kernel,
                        sharp_kernel, slice_idx, plot_dir):
-    """
-    Save a figure with the raw 256-point model outputs for one slice.
-
-    Parameters
-    ----------
-    out_smooth, out_sharp : torch.Tensor  shape (1, 256)
-    """
-    y_smooth = out_smooth.squeeze().cpu().numpy()   # (256,)
-    y_sharp  = out_sharp.squeeze().cpu().numpy()    # (256,)
+    y_smooth = out_smooth.squeeze().cpu().numpy()
+    y_sharp  = out_sharp.squeeze().cpu().numpy()
     x        = np.arange(len(y_smooth))
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=False)
@@ -87,12 +88,10 @@ def plot_model_outputs(out_smooth, out_sharp, volume_id, smooth_kernel,
 
 # ── main reconstruction ───────────────────────────────────────────────────────
 
-def reconstruct_volume(sample, model, device, output_dir, plot_dir,
+def reconstruct_volume(sample, model, device, plot_dir,
+                       testA_fake_dir, testB_fake_dir,
+                       testA_residual_dir, testB_residual_dir,
                        plot_every_n_slices=10):
-    """
-    Reconstruct a volume and save plots of the model outputs every
-    `plot_every_n_slices` slices.
-    """
     data_smooth   = sample['smooth_volume']
     data_sharp    = sample['sharp_volume']
     volume_id     = sample['volume_id']
@@ -152,26 +151,38 @@ def reconstruct_volume(sample, model, device, output_dir, plot_dir,
         vol_generated_sharp[:,  :, k] = ((res_sharp.clip(0, 1)  * 4000) - 1000).clip(-1000, 3000)
         vol_generated_smooth[:, :, k] = ((res_smooth.clip(0, 1) * 4000) - 1000).clip(-1000, 3000)
 
-    nii_sharp  = nib.Nifti1Image(vol_generated_sharp,  sample['sharp_affine'],  sample['sharp_header'])
-    nii_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])
+    smooth_fname = f'{volume_id}_{smooth_kernel}.nii.gz'
+    sharp_fname  = f'{volume_id}_{sharp_kernel}.nii.gz'
 
-    nib.save(nii_sharp,  os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz'))
-    nib.save(nii_smooth, os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz'))
-
-    residual_sharp  = data_sharp  - vol_generated_sharp
-    residual_smooth = data_smooth - vol_generated_smooth
-
+    # Save generated volumes
     nib.save(
-        nib.Nifti1Image(residual_sharp,  sample['sharp_affine'],  sample['sharp_header']),
-        os.path.join(output_dir, f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}_residual.nii.gz')
+        nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header']),
+        os.path.join(testA_fake_dir, smooth_fname)
     )
+    nib.save(
+        nib.Nifti1Image(vol_generated_sharp, sample['sharp_affine'], sample['sharp_header']),
+        os.path.join(testB_fake_dir, sharp_fname)
+    )
+
+    # Save residuals
+    residual_smooth = data_smooth - vol_generated_smooth
+    residual_sharp  = data_sharp  - vol_generated_sharp
+
     nib.save(
         nib.Nifti1Image(residual_smooth, sample['smooth_affine'], sample['smooth_header']),
-        os.path.join(output_dir, f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}_residual.nii.gz')
+        os.path.join(testA_residual_dir, smooth_fname.replace('.nii.gz', '_residual.nii.gz'))
+    )
+    nib.save(
+        nib.Nifti1Image(residual_sharp, sample['sharp_affine'], sample['sharp_header']),
+        os.path.join(testB_residual_dir, sharp_fname.replace('.nii.gz', '_residual.nii.gz'))
     )
 
-    print(f'Saved reconstructions and residuals for volume {volume_id}')
-    print(f'Plots saved to: {plot_dir}')
+    print(f'Saved reconstructions for volume {volume_id}')
+    print(f'  testA_fake/     ← {smooth_fname}')
+    print(f'  testB_fake/     ← {sharp_fname}')
+    print(f'  testA_residuals/ ← {smooth_fname.replace(".nii.gz", "_residual.nii.gz")}')
+    print(f'  testB_residuals/ ← {sharp_fname.replace(".nii.gz", "_residual.nii.gz")}')
+    print(f'  Plots saved to: {plot_dir}')
 
 
 for idx in range(len(dataset)):
@@ -179,9 +190,12 @@ for idx in range(len(dataset)):
     sample = dataset[idx]
     reconstruct_volume(
         sample, model, device,
-        output_dir=output_dir,
         plot_dir=plot_dir,
-        plot_every_n_slices=10   
+        testA_fake_dir=testA_fake_dir,
+        testB_fake_dir=testB_fake_dir,
+        testA_residual_dir=testA_residual_dir,
+        testB_residual_dir=testB_residual_dir,
+        plot_every_n_slices=10
     )
 
 print(f'\nReconstruction complete! All files saved to: {output_dir}')
