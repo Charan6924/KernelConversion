@@ -41,11 +41,11 @@ for i in range(len(mtf_cpu)):
     fig.suptitle(f"Sample {i}  |  Kernel: {kernel_name}", fontsize=13, fontweight='bold')
 
     # --- Predicted MTF ---
-    axes[0].plot(x, mtf_cpu[i].squeeze(), color='steelblue', linewidth=2)
+    axes[0].plot(x, mtf_cpu[i].squeeze()[::-1], color='steelblue', linewidth=2)
     axes[0].set_title("Predicted MTF")
     axes[0].set_xlabel("Normalised Spatial Frequency")
     axes[0].set_ylabel("MTF")
-    axes[0].set_ylim(0, 1.05)
+    axes[0].set_ylim(0, 3)
     axes[0].grid(True, alpha=0.3)
 
     # --- Target MTF ---
@@ -53,7 +53,7 @@ for i in range(len(mtf_cpu)):
     axes[1].set_title("Target MTF")
     axes[1].set_xlabel("Normalised Spatial Frequency")
     axes[1].set_ylabel("MTF")
-    axes[1].set_ylim(0, 1.05)
+    axes[1].set_ylim(0, 3)
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
