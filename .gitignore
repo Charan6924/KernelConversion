@@ -8,45 +8,35 @@ wheels/
 
 # Virtual environments
 .venv
-MTF_1D_Plots/
-MTF_Results_Output/
-MTFTools-main/examples/
-Code/training_output_0.7/
-Code/training_output_0.5/
-Code/training_output_0.5_1/
-Code/training_output_0.5_0/
-/Code/training_output_0.5_2/
-/Code/training_output_0.5_3/
-/Code/training_output_0.5_4/
-Code/training_output_0.5_with_ft_loss/
-Code/training_output_0.8/
-Code/__pycache__/
-MTF_Results_Output/
-Code/training_output_0.5_no_clamp/
-MTFTools-main/
-PSD_Results_Output/
+
+# Training outputs
+Code/training_output_*/
+Code/filters/
+Code/best_checkpoint_2d_kernel.pth
+
+# Data
+Data_Root/
 testA/
 testB/
+testA_fake_2d_mtf/
+testb_fake_2d_mtf/
+MTF_1D_Plots/
+MTF_Results_Output/
+MTFTools-main/
+PSD_Results_Output/
+
+# Reconstructions
 reconstructions/
 reconstructions_with_ft_loss/
 reconstructions_without_ft_loss/
-Code/Code/reconstructed_sharp_CB_to_YA.nii.gz
-D:\Charan work file\PhantomTesting\Code\reconstructed_smooth_YA_to_CB.nii.gz
-testA_fake_2d_mtf/
-testb_fake_2d_mtf/
-Code/training_output_0.5_with_smoothed_ft_loss
-Code/filters
-Data_Root/
-Code/training_output_0.5_best/
-Code/training_output_0.5_top/
-Code/training_output_0.5_full/
-Code/training_output_0.5_partial_loss/
+
+# Logs
 logs/
-Code/training_output_0.5_100/
-Code/training_output_0.5_vanilla/
-Code/training_output_filter/
-Code/training_output_filter-1/
-Code/training_output_2d/
-Code/training_output_kernel256/
-Code/training_output_kernel2d/
-Code/best_checkpoint_2d_kernel.pth
+Code/logs/
+
+# Checkpoints
+*.pth
+*.nii.gz
+
+# Generated NIfTI outputs
+Code/Code/

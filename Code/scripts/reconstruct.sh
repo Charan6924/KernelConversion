@@ -15,4 +15,4 @@ mkdir -p /home/cxv166/PhantomTesting/logs
 
 cd /home/cxv166/PhantomTesting/Code
 
-uv run reconstruct.py
+uv run inference/reconstruct.py

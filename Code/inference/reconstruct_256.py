@@ -5,10 +5,10 @@ import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from utils import spline_to_kernel, generate_images
-from TestDataset import TestDataset
-from KernelEstimator import KernelEstimator
-from utils import compute_fft
+from utils.utils import spline_to_kernel, generate_images
+from data.TestDataset import TestDataset
+from models.KernelEstimator import KernelEstimator
+from utils.utils import compute_fft
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()

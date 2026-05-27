@@ -3,10 +3,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torch.nn import functional as F
-from PSDDataset import PSDDataset
-from filterModel import FilterEstimator
-from SplineEstimator import KernelEstimator
-from utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, generate_images, radial_to_2d, get_torch_spline
+from data.PSDDataset import PSDDataset
+from models.filterModel import FilterEstimator
+from models.SplineEstimator import KernelEstimator
+from utils.utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, generate_images, radial_to_2d, get_torch_spline
 from dataclasses import dataclass
 from pathlib import Path
 from tqdm import tqdm

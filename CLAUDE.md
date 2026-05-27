@@ -15,13 +15,13 @@ uv sync                    # Install dependencies
 
 ### Training (HPC with SLURM)
 ```bash
-sbatch Code/train.sh       # Submit training job to GPU cluster
-uv run Code/FullTrainLoop.py  # Run training directly
+sbatch Code/scripts/train.sh       # Submit training job to GPU cluster
+uv run Code/training/FullTrainLoop.py  # Run training directly
 ```
 
 ### Inference
 ```bash
-uv run Code/main.py        # Run inference with trained model
+uv run Code/inference/reconstruct.py   # Run inference with trained model
 ```
 
 ## Architecture
@@ -34,23 +34,23 @@ uv run Code/main.py        # Run inference with trained model
 
 ### Key Components
 
-**`SplineEstimator.py`** - Neural network architecture
+**`Code/models/SplineEstimator.py`** - Neural network architecture
 - `KernelEstimator`: U-Net that outputs 16 values (10 control points + 6 knot parameters)
 - `FixedSplineLayer`: Converts raw knot parameters into valid B-spline knot vector
 
-**`utils.py`** - Core signal processing functions
+**`Code/utils/utils.py`** - Core signal processing functions
 - `compute_psd()`: Image → log-normalized power spectral density
 - `compute_fft()`: Image → centered Fourier transform
 - `get_torch_spline()`: Knots + control points → spline curve (Cox-de Boor algorithm)
 - `spline_to_kernel()`: Spline curves → 2D radial OTF filters
 - `generate_images()`: Apply OTF filter to convert images
 
-**`PSDDataset.py`** - Training data loader for image pairs
+**`Code/data/PSDDataset.py`** - Training data loader for image pairs
 - Loads NIfTI volumes from `trainA` (smooth) and `trainB` (sharp) directories
 - Extracts kernel type from filename (`_filter_B`, `_filter_C`, etc.)
 - Supports volume preloading for faster training
 
-**`Dataset.py`** - `MTFPSDDataset` for MTF ground truth
+**`Code/data/Dataset.py`** - `MTFPSDDataset` for MTF ground truth
 - Pairs MTF `.mat` files with PSD `.npy` files
 - Used for supervised MTF prediction loss
 

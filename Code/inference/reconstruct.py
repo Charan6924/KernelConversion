@@ -3,9 +3,9 @@ import nibabel as nib
 import torch
 import os
 from torch.utils.data import DataLoader
-from SplineEstimator import KernelEstimator
-from utils import generate_images, spline_to_kernel, get_torch_spline
-from TestDataset import TestDataset
+from models.SplineEstimator import KernelEstimator
+from utils.utils import generate_images, spline_to_kernel, get_torch_spline
+from data.TestDataset import TestDataset
 import matplotlib.pyplot as plt
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

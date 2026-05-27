@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torch.nn import functional as F
-from PSDDataset import PSDDataset
-from Dataset import MTFPSDDataset
-from SplineEstimator import KernelEstimator
-from utils import (
+from data.PSDDataset import PSDDataset
+from data.Dataset import MTFPSDDataset
+from models.SplineEstimator import KernelEstimator
+from utils.utils import (
     generate_images, get_torch_spline, load_checkpoint,
     compute_gradient_norm, validate, compute_psd,
     spline_to_kernel, compute_fft, huber

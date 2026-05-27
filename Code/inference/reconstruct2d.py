@@ -2,9 +2,9 @@ import numpy as np
 import nibabel as nib
 import torch
 import os
-from utils import generate_images
-from TestDataset import TestDataset
-from KernelEstimator import KernelEstimator
+from utils.utils import generate_images
+from data.TestDataset import TestDataset
+from models.KernelEstimator import KernelEstimator
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
 checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_0.5/checkpoints/best_checkpoint.pth", map_location=device)

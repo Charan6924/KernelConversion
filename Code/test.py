@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from Dataset import MTFPSDDataset
-from SplineEstimator import KernelEstimator
-from utils import get_torch_spline
+from data.Dataset import MTFPSDDataset
+from models.SplineEstimator import KernelEstimator
+from utils.utils import get_torch_spline
 import os
 import matplotlib.pyplot as plt
 import numpy as np

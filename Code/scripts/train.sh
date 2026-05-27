@@ -22,6 +22,6 @@ echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
 # Run training
-uv run FullTrainLoop.py
+uv run training/FullTrainLoop.py
 
 echo "End time: $(date)"
