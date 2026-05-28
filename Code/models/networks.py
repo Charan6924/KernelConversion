@@ -5,13 +5,45 @@ from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
 import numpy as np
-from .stylegan_networks import StyleGAN2Discriminator, StyleGAN2Generator, TileStyleGAN2Discriminator
-
+#from .stylegan_networks import StyleGAN2Discriminator, StyleGAN2Generator, TileStyleGAN2Discriminator
+#from .networks3D import ResnetGenerator3D, ResnetBlock3D, NLayerDiscriminator3D, PatchSampleF_3D
+#from .Unet3D_hao import UNet3D, UNet2D
+import math 
 ###############################################################################
 # Helper Functions
 ###############################################################################
 
+def center_crop_or_pad(tensor, X):
+    B, C, H, W = tensor.shape
+    if X < W:
+        # Center crop
+        start_w = (W - X) // 2
+        cropped_tensor = tensor[:, :, :, start_w:start_w + X]
+        return cropped_tensor
+    elif X > W:
+        # Symmetric padding
+        pad_total = X - W
+        pad_left = pad_total // 2
+        pad_right = pad_total - pad_left
+        padded_tensor = F.pad(tensor, (pad_left, pad_right), mode='constant', value=0)
+        return padded_tensor
+    else:
+        # No need to crop or pad
+        return tensor
 
+def closest_power_of_two(A):
+    if A <= 0:
+        raise ValueError("A must be a positive number")
+    
+    n = math.log2(A)
+    lower_power = 2 ** math.floor(n)
+    upper_power = 2 ** math.ceil(n)
+    
+    if abs(lower_power - A) <= abs(upper_power - A):
+        return lower_power
+    else:
+        return upper_power
+    
 def get_filter(filt_size=3):
     if(filt_size == 1):
         a = np.array([1., ])
@@ -123,6 +155,8 @@ def get_norm_layer(norm_type='instance'):
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True)
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
+    elif norm_type == 'instance3d':
+        norm_layer = functools.partial(nn.InstanceNorm3d, affine=False, track_running_stats=False)
     elif norm_type == 'none':
         def norm_layer(x):
             return Identity()
@@ -263,10 +297,23 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'resnet_cat':
         n_blocks = 8
         net = G_Resnet(input_nc, output_nc, opt.nz, num_downs=2, n_res=n_blocks - 4, ngf=ngf, norm='inst', nl_layer='relu')
+    elif netG == 'resnet_9blocks_3D':
+        net = ResnetGenerator3D(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, no_antialias=no_antialias, no_antialias_up=no_antialias_up, n_blocks=9, opt=opt)
+    elif netG == 'resnet_KC':
+        net = ResnetKCGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, no_antialias=no_antialias, no_antialias_up=no_antialias_up, n_blocks=9, opt=opt)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids, initialize_weights=('stylegan2' not in netG))
 
+def define_S(pretrain_path = '/home/hxw352/contrastive-unpaired-translation-master/checkpoints/Pretrained_network/SegNet_updated.pth',  init_type='normal',
+             init_gain=0.02, gpu_ids =[]):
+    net = UNet2D(classes=1, in_channels=1, init_features=16)
+    # net = UNet3D()
+    pth = torch.load(pretrain_path)
+    model_pth = pth
+    net.load_state_dict(model_pth)
+    print('pre-trained segnet loaded')
+    return init_net(net, init_type, init_gain, gpu_ids, initialize_weights=False)
 
 def define_F(input_nc, netF, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, no_antialias=False, gpu_ids=[], opt=None):
     if netF == 'global_pool':
@@ -279,6 +326,10 @@ def define_F(input_nc, netF, norm='batch', use_dropout=False, init_type='normal'
         net = PatchSampleF(use_mlp=True, init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids, nc=opt.netF_nc)
     elif netF == 'strided_conv':
         net = StridedConvF(init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids)
+    elif netF == 'mlp_sample_3D':
+        net = PatchSampleF_3D(use_mlp=True, init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids, nc=opt.netF_nc)
+    elif netF == 'mlp_sample_weighted':
+        net = PatchSampleF_prob(use_mlp=True, init_type=init_type, init_gain=init_gain, gpu_ids=gpu_ids, nc=opt.netF_nc)
     else:
         raise NotImplementedError('projection model name [%s] is not recognized' % netF)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -325,6 +376,8 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
         net = PixelDiscriminator(input_nc, ndf, norm_layer=norm_layer)
     elif 'stylegan2' in netD:
         net = StyleGAN2Discriminator(input_nc, ndf, n_layers_D, no_antialias=no_antialias, opt=opt)
+    elif netD == 'basic_3D':
+        net = NLayerDiscriminator3D(input_nc, ndf, n_layers=3, norm_layer=norm_layer, no_antialias=no_antialias,)
     else:
         raise NotImplementedError('Discriminator model name [%s] is not recognized' % netD)
     return init_net(net, init_type, init_gain, gpu_ids,
@@ -408,6 +461,84 @@ class GANLoss(nn.Module):
                 loss = F.softplus(prediction).view(bs, -1).mean(dim=1)
         return loss
 
+class FeatureLoss(nn.Module):
+    def __init__(self, compare_mode = 1):
+        super(FeatureLoss, self).__init__()
+        self.compare_mode = compare_mode
+        
+    def forward(self, features_A, features_B, A_label, B_label):
+        self.features_A = features_A
+        self.features_B = features_B
+        if self.compare_mode > 0:  
+            # preprocessing: dilate the labels 
+            self.A_label = A_label
+            self.B_label = B_label  
+        else:
+            self.A_label = torch.ones(A_label.shape)
+            self.B_label = torch.ones(B_label.shape)        
+        masked_features_A = self.mask_features(self.features_A, self.A_label)
+        masked_features_B = self.mask_features(self.features_B, self.B_label)
+        mse_scores = self.compare_masked_features(masked_features_A, masked_features_B)
+        return mse_scores
+    def compare_masked_features(self, masked_features_A, masked_features_B):
+        mse_scores = [F.mse_loss(a, b) for a, b in zip(masked_features_A, masked_features_B)]
+        return mse_scores
+
+    def downsample_labels(self, labels, size):
+        return F.interpolate(labels, size=size, mode='trilinear', align_corners=False)
+
+    def mask_features(self, features, labels):
+        masked_features = [feature * self.downsample_labels(labels, feature.shape[2:]) for feature in features]
+        return masked_features
+
+class DICELoss(nn.Module):
+    """Define the DICE loss for evaluating segmentation models.
+
+    The DICELoss class computes the Dice Loss, which is a measure of overlap between
+    two samples. This class will be particularly useful for segmentation tasks where
+    the balance between precision and recall is important.
+    """
+
+    def __init__(self, smooth=1e-6):
+        """Initialize the DICELoss class.
+
+        Parameters:
+            smooth (float) - - A smoothing term to avoid division by zero and stabilize training.
+        """
+        super(DICELoss, self).__init__()
+        self.smooth = smooth
+
+    def forward(self, prediction, target):
+        """Calculate the DICE loss.
+
+        Parameters:
+            prediction (tensor) - - The predicted segmentation map, typically a tensor of shape (N, C, H, W) where
+                                     N is the batch size, C is the number of channels, H and W are the height and width.
+            target (tensor) - - The ground truth segmentation map, should have the same shape as the prediction.
+
+        Returns:
+            The calculated DICE loss.
+        """
+        assert prediction.size() == target.size(), "Prediction and target must have the same size"
+        
+        # # Flatten the tensors to simplify computation
+        # prediction_flat = prediction.view(prediction.size(0), -1)
+        # target_flat = target.view(target.size(0), -1)
+        
+        # # Compute the intersection and the sum of the two sets
+        # intersection = 2.0 * (prediction_flat * target_flat).sum() + self.smooth
+        # union = prediction_flat.sum() + target_flat.sum() + self.smooth
+        
+        intersection = torch.sum(prediction * target)
+        total = torch.sum(prediction) + torch.sum(target)
+        dice_score = (2. * intersection + self.smooth) / (total + self.smooth)  # Adding a small epsilon to avoid division by zero
+
+        # Compute the DICE score and then the DICE loss
+        
+        dice_loss = 1 - dice_score
+        
+        # Return the mean DICE loss over the batch
+        return dice_loss.mean()
 
 def cal_gradient_penalty(netD, real_data, fake_data, device, type='mixed', constant=1.0, lambda_gp=10.0):
     """Calculate the gradient penalty loss, used in WGAN-GP paper https://arxiv.org/abs/1704.00028
@@ -581,6 +712,90 @@ class PatchSampleF(nn.Module):
                 x_sample = x_sample.permute(0, 2, 1).reshape([B, x_sample.shape[-1], H, W])
             return_feats.append(x_sample)
         return return_feats, return_ids
+
+class PatchSampleF_prob(nn.Module):
+    def __init__(self, use_mlp=False, init_type='normal', init_gain=0.02, nc=256, gpu_ids=[]):
+        # potential issues: currently, we use the same patch_ids for multiple images in the batch
+        super(PatchSampleF_prob, self).__init__()
+        self.l2norm = Normalize(2)
+        self.use_mlp = use_mlp
+        self.nc = nc  # hard-coded
+        self.mlp_init = False
+        self.init_type = init_type
+        self.init_gain = init_gain
+        self.gpu_ids = gpu_ids
+
+    def create_mlp(self, feats):
+        for mlp_id, feat in enumerate(feats):
+            input_nc = feat.shape[1]
+            mlp = nn.Sequential(*[nn.Linear(input_nc, self.nc), nn.ReLU(True), nn.Linear(self.nc, self.nc)])
+            if len(self.gpu_ids) > 0:
+                mlp.cuda()
+            setattr(self, 'mlp_%d' % mlp_id, mlp)
+        init_net(self, self.init_type, self.init_gain, self.gpu_ids)
+        self.mlp_init = True
+
+    def forward(self, feats, num_patches=64, patch_ids=None, prob_map=None):
+        return_ids = []
+        return_feats = []
+        return_probs = []
+        if self.use_mlp and not self.mlp_init:
+            self.create_mlp(feats)
+        for feat_id, feat in enumerate(feats):
+            B, H, W = feat.shape[0], feat.shape[2], feat.shape[3]
+            feat_reshape = feat.permute(0, 2, 3, 1).flatten(1, 2) # B, H*W, Features
+            if num_patches > 0:
+                if patch_ids is not None:
+                    patch_id = patch_ids[feat_id]
+                else:
+                    # torch.randperm produces cudaErrorIllegalAddress for newer versions of PyTorch. https://github.com/taesungp/contrastive-unpaired-translation/issues/83
+                    #patch_id = torch.randperm(feat_reshape.shape[1], device=feats[0].device)
+                    patch_id = np.random.permutation(feat_reshape.shape[1])
+
+                    # patch_id = np.arange(0, feat_reshape.shape[1])
+                    
+                    patch_id = patch_id[:int(min(num_patches, patch_id.shape[0]))]  # .to(patch_ids.device)
+                patch_id = torch.tensor(patch_id, dtype=torch.long, device=feat.device)
+                x_sample = feat_reshape[:, patch_id, :].flatten(0, 1)  # reshape(-1, x.shape[1])
+            else:
+                x_sample = feat_reshape
+                patch_id = []
+            if self.use_mlp:
+                mlp = getattr(self, 'mlp_%d' % feat_id)
+                x_sample = mlp(x_sample)
+            return_ids.append(patch_id)
+            x_sample = self.l2norm(x_sample)
+
+            if prob_map is not None:
+                # Assuming prob_map is of shape (B, num_classes, H, W)
+                prob_map_resize = F.interpolate(prob_map, size=(H, W), mode='bilinear', align_corners=False)
+                # prob_map_reshape = feat.permute(0, 2, 3, 1).flatten(1, 2) # B, H*W, Class
+                # Calculate patch coordinates
+                rows = patch_id // W
+                cols = patch_id % W
+                prob_samples = prob_map_resize[:, :, rows, cols]  # Gather probabilities directly corresponding to patch_ids
+                return_probs.append(prob_samples)
+
+                # debug 
+                # a = prob_samples.reshape(3,8,64,64)
+                # rows = 4
+                # plt.figure(1,(20,20))
+                # for ii in range(8):
+                #     cur_q = a[0, ii, :, :]
+                #     a_selected = cv2.resize(cur_q.detach().numpy(), dsize=(256, 256), interpolation=cv2.INTER_AREA)
+                #     plt.subplot(rows, rows,ii+1)
+                #     plt.imshow(a_selected.squeeze()  , cmap='hot',interpolation='none')#
+                #     plt.axis('off')
+                # plt.show()
+
+            if num_patches == 0:
+                x_sample = x_sample.permute(0, 2, 1).reshape([B, x_sample.shape[-1], H, W])
+            return_feats.append(x_sample)
+            
+        if prob_map is not None:
+            return return_feats, return_ids, return_probs
+        else:
+            return return_feats, return_ids
 
 
 class G_Resnet(nn.Module):
@@ -1009,6 +1224,194 @@ class ResnetGenerator(nn.Module):
             fake = self.model(input)
             return fake
 
+class ResnetKCGenerator(nn.Module):
+    """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
+
+    We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
+    """
+
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect', no_antialias=False, no_antialias_up=False, opt=None):
+        """Construct a Resnet-based generator
+
+        Parameters:
+            input_nc (int)      -- the number of channels in input images
+            output_nc (int)     -- the number of channels in output images
+            ngf (int)           -- the number of filters in the last conv layer
+            norm_layer          -- normalization layer
+            use_dropout (bool)  -- if use dropout layers
+            n_blocks (int)      -- the number of ResNet blocks
+            padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
+        """
+        assert(n_blocks >= 0)
+        super(ResnetKCGenerator, self).__init__()
+        self.opt = opt
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        model = [nn.ReflectionPad2d(3),
+                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
+                 norm_layer(ngf),
+                 nn.ReLU(True)]
+
+        n_downsampling = 2
+        for i in range(n_downsampling):  # add downsampling layers
+            mult = 2 ** i
+            if(no_antialias):
+                model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                          norm_layer(ngf * mult * 2),
+                          nn.ReLU(True)]
+            else:
+                model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=1, padding=1, bias=use_bias),
+                          norm_layer(ngf * mult * 2),
+                          nn.ReLU(True),
+                          Downsample(ngf * mult * 2)]
+
+        mult = 2 ** n_downsampling
+        for i in range(n_blocks):       # add ResNet blocks
+
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+        for i in range(n_downsampling):  # add upsampling layers
+            mult = 2 ** (n_downsampling - i)
+            if no_antialias_up:
+                model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+                                             kernel_size=3, stride=2,
+                                             padding=1, output_padding=1,
+                                             bias=use_bias),
+                          norm_layer(int(ngf * mult / 2)),
+                          nn.ReLU(True)]
+            else:
+                model += [Upsample(ngf * mult),
+                          nn.Conv2d(ngf * mult, int(ngf * mult / 2),
+                                    kernel_size=3, stride=1,
+                                    padding=1,  # output_padding=1,
+                                    bias=use_bias),
+                          norm_layer(int(ngf * mult / 2)),
+                          nn.ReLU(True)]
+        model += [nn.ReflectionPad2d(3)]
+        model += [nn.Conv2d(ngf, ngf, kernel_size=7, padding=0)]
+        # output : 2 channels, 1 for Real and 1 for imaginary part, to force the conjugation, output size should be B, 2, H, W/2
+        # model += [nn.Conv2d(ngf, 2, kernel_size=(1, 3), padding=(0, 1), stride = (1, 2))]      # if input W is 256
+        model += [nn.Conv2d(ngf, 2, kernel_size=(1, 2), stride = (1, 2))] # if input W is 512
+
+        model += [nn.Sigmoid()]
+
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input, layers=[], encode_only=False):
+        if -1 in layers:
+            layers.append(len(self.model))
+        if len(layers) > 0:
+            feat = input
+            feats = []
+            for layer_id, layer in enumerate(self.model):
+                # print(layer_id, layer)
+                feat = layer(feat)
+                if layer_id in layers:
+                    # print("%d: adding the output of %s %d" % (layer_id, layer.__class__.__name__, feat.size(1)))
+                    feats.append(feat)
+                else:
+                    # print("%d: skipping %s %d" % (layer_id, layer.__class__.__name__, feat.size(1)))
+                    pass
+                if layer_id == layers[-1] and encode_only:
+                    # print('encoder only return features')
+                    return feats  # return intermediate features alone; stop in the last layers
+
+            return feat, feats  # return both output and intermediate features
+        else:
+            """Standard forward"""
+            fake = self.model(input)
+            return fake
+
+
+
+class Merge3DVolumes(nn.Module):
+    def __init__(self):
+        super(Merge3DVolumes, self).__init__()
+        self.conv1 = nn.Conv3d(in_channels=3, out_channels=8, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv3d(in_channels=8, out_channels=16, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv3d(in_channels=16, out_channels=1, kernel_size=3, padding=1)
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.tanh(self.conv3(x))
+        return x
+
+
+class WidthUpsampleNetwork(nn.Module):
+    def __init__(self, input_channels, upscale_factor, num_upsample_blocks=1):
+        super(WidthUpsampleNetwork, self).__init__()
+        self.initial_conv = nn.Conv2d(input_channels, 64, kernel_size=3, stride=1, padding=1)
+        self.relu = nn.ReLU(True)
+        
+        # Create a sequence of upsample blocks
+        upsample_blocks = []
+        for _ in range(num_upsample_blocks):
+            upsample_blocks.append(WidthUpsampleBlock(64, upscale_factor))
+
+        # self.upsample_input = WidthUpsampleBlock(input_channels, upscale_factor, relu = False)
+
+        self.head_conv = nn.Conv2d(input_channels, 64, kernel_size=3, stride=1, padding=1)
+        self.head_transpose = nn.ConvTranspose2d(
+            64, 1, 
+            kernel_size=(1, upscale_factor * 2), 
+            stride=(1, upscale_factor), 
+            padding=(0, upscale_factor // 2 + 1), 
+            output_padding=(0, upscale_factor % 2)
+        )    
+        # self.head_transpose = nn.ConvTranspose2d(
+        #     64, 1, 
+        #     kernel_size=(1, 3), 
+        #     stride=(1, upscale_factor), 
+        #     padding=(0, 1),
+        #     output_padding =(0,1)
+        # )   
+        self.upsample_blocks = nn.Sequential(*upsample_blocks)
+
+        self.body = ResnetGenerator(input_nc = 64, output_nc = 64, ngf = 64, n_blocks = 4)
+
+        # self.final_conv = nn.Conv2d(64, input_channels, kernel_size=3, stride=1, padding=1)
+        self.final_conv = nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1)
+
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        # x_head = self.upsample_input(x)
+        x_head = self.head_conv(x)
+        # # print(f'x_head shape: {x_head.shape}')
+        x_head = self.head_transpose(x_head)
+        x = self.initial_conv(x)
+        x = self.relu(x)
+        x = self.upsample_blocks(x)
+        x = self.body(x)
+        x = self.final_conv(x)
+        # print(f'x shape: {x.shape}')
+        # print(f'x_head shape: {x_head.shape}')
+        x = self.tanh(x+x_head)  #   retain range in [-1 1]
+        # x = self.tanh(x)
+        return x
+
+class WidthUpsampleBlock(nn.Module):
+    def __init__(self, in_channels, upscale_factor, relu = True ):
+        super(WidthUpsampleBlock, self).__init__()
+        self.upscale_factor = upscale_factor
+        self.conv = nn.Conv2d(in_channels, in_channels * upscale_factor, kernel_size=3, stride=1, padding=1)
+        self.relu = nn.ReLU(relu)
+
+    def forward(self, x):
+        batch_size, channels, height, width = x.size()
+        # Apply convolution and reshape to apply PixelShuffle
+        x = self.conv(x)
+        x = x.view(batch_size, channels, height, self.upscale_factor, width)
+        x = x.permute(0, 1, 2, 4, 3).contiguous()
+        x = x.view(batch_size, channels, height, width * self.upscale_factor)
+        x = self.relu(x)
+        return x
 
 class ResnetDecoder(nn.Module):
     """Resnet-based decoder that consists of a few Resnet blocks + a few upsampling operations.
@@ -1207,9 +1610,30 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
 
-    def forward(self, input):
-        """Standard forward"""
-        return self.model(input)
+    def forward(self, input, layers=[], encode_only=False):
+        if -1 in layers:
+            layers.append(len(self.model))
+        if len(layers) > 0:
+            feat = input
+            feats = []
+            for layer_id, layer in enumerate(self.model):
+                # print(layer_id, layer)
+                feat = layer(feat)
+                if layer_id in layers:
+                    # print("%d: adding the output of %s %d" % (layer_id, layer.__class__.__name__, feat.size(1)))
+                    feats.append(feat)
+                else:
+                    # print("%d: skipping %s %d" % (layer_id, layer.__class__.__name__, feat.size(1)))
+                    pass
+                if layer_id == layers[-1] and encode_only:
+                    # print('encoder only return features')
+                    return feats  # return intermediate features alone; stop in the last layers
+
+            return feat, feats  # return both output and intermediate features
+        else:
+            """Standard forward"""
+            fake = self.model(input)
+            return fake
 
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -1231,6 +1655,7 @@ class UnetSkipConnectionBlock(nn.Module):
             innermost (bool)    -- if this module is the innermost module
             norm_layer          -- normalization layer
             use_dropout (bool)  -- if use dropout layers.
+
         """
         super(UnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
@@ -1380,7 +1805,8 @@ class PatchDiscriminator(NLayerDiscriminator):
 
     def forward(self, input):
         B, C, H, W = input.size(0), input.size(1), input.size(2), input.size(3)
-        size = 16
+        # size = 16 # original for 256x256
+        size = 32 # change to larger patch for higher res 512x512
         Y = H // size
         X = W // size
         input = input.view(B, C, Y, size, X, size)
