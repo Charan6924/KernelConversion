@@ -3,6 +3,7 @@ import csv
 import os
 import time
 import random
+import datetime
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
@@ -81,7 +82,11 @@ class CycleGANOptions:
 
 
 def setup_ddp():
-    dist.init_process_group(backend="nccl")
+    dist.init_process_group(
+        backend="nccl",
+        timeout=datetime.timedelta(minutes=30),
+    )
+    os.environ["NCCL_DEBUG"] = os.environ.get("NCCL_DEBUG", "WARN")
     local_rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(local_rank)
     return local_rank
@@ -131,7 +136,7 @@ def train():
 
     # Subsample to keep training feasible
     random.seed(42)
-    indices = random.sample(range(len(dataset)), min(500, len(dataset)))
+    indices = random.sample(range(len(dataset)), min(7500, len(dataset)))
     dataset = Subset(dataset, indices)
 
     sampler = DistributedSampler(dataset, shuffle=True)

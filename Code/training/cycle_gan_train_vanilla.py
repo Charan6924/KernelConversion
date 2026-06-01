@@ -107,7 +107,7 @@ def train():
 
     # Subsample for feasible training
     random.seed(42)
-    indices = random.sample(range(len(dataset)), min(500, len(dataset)))
+    indices = random.sample(range(len(dataset)), min(7500, len(dataset)))
     dataset = Subset(dataset, indices)
 
     img_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True,
