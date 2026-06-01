@@ -102,7 +102,7 @@ def format_time(seconds):
 
 def train():
     local_rank = setup_ddp()
-    num_epochs = 50                  # reduced from 200
+    num_epochs = 200           # reduced from 200
     device = torch.device(f"cuda:{local_rank}")
 
     opt = CycleGANOptions()
