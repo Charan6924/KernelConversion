@@ -1401,7 +1401,7 @@ class WidthUpsampleBlock(nn.Module):
         super(WidthUpsampleBlock, self).__init__()
         self.upscale_factor = upscale_factor
         self.conv = nn.Conv2d(in_channels, in_channels * upscale_factor, kernel_size=3, stride=1, padding=1)
-        self.relu = nn.ReLU(relu)
+        self.relu = nn.ReLU(False)
 
     def forward(self, x):
         batch_size, channels, height, width = x.size()

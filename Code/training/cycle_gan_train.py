@@ -1,13 +1,14 @@
 import torch
 import csv
-from torch.utils.data import DataLoader
-from models.cycle_gan_model import CycleGANModel
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data.distributed import DistributedSampler
-from data.PSDDataset import PSDDataset
 import os
 import time
+import random
+from torch.utils.data import DataLoader, Subset
+from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from models.cycle_gan_model import CycleGANModel
+from data.PSDDataset import PSDDataset
 from tqdm import tqdm
 
 class CycleGANOptions:
@@ -108,25 +109,25 @@ def train():
     opt.gpu_ids = [local_rank]
 
     model = CycleGANModel(opt)
-    model.setup(opt)
 
-    # Wrap each sub-network with DDP
-    # find_unused_parameters handles inplace op issues
-    # static_graph=True is safe for CycleGAN and speeds up communication
+    # Wrap sub-networks with DDP before setup(), so optimizers are created
+    # from DDP-hosting references.  static_graph=True is safe for CycleGAN
+    # (fixed forward/backward pattern per iteration) and avoids the overhead
+    # of find_unused_parameters.
     for name in model.model_names:
         if isinstance(name, str):
             net = getattr(model, 'net' + name)
             net = net.to(device)
             net = DDP(net, device_ids=[local_rank],
-                      static_graph=True)   
+                      static_graph=True)
             setattr(model, 'net' + name, net)
+
+    model.setup(opt)
 
     root_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
     dataset = PSDDataset(root_dir=root_dir)
 
     # Subsample to keep training feasible
-    from torch.utils.data import Subset
-    import random
     random.seed(42)
     indices = random.sample(range(len(dataset)), min(500, len(dataset)))
     dataset = Subset(dataset, indices)
@@ -156,13 +157,13 @@ def train():
         batch_iter = tqdm(img_loader, desc=f"Epoch {epoch}/{num_epochs}",
                           unit="batch", leave=False) if local_rank == 0 else img_loader
 
-        for batch_idx, (I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2) in enumerate(batch_iter):
-            I_smooth_1 = I_smooth_1.to(device, non_blocking=True)
-            I_sharp_1  = I_sharp_1.to(device, non_blocking=True)
+        for batch_idx, (I_smooth, I_sharp, _, _) in enumerate(batch_iter):
+            I_smooth = I_smooth.to(device, non_blocking=True)
+            I_sharp  = I_sharp.to(device, non_blocking=True)
 
             data = {
-                'A': I_smooth_1,
-                'B': I_sharp_1,
+                'A': I_smooth,
+                'B': I_sharp,
                 'A_paths': '',
                 'B_paths': ''
             }
