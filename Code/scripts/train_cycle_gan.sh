@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=adv_train
+#SBATCH --job-name=cycle_gan_train
 #SBATCH --partition=cgpudlw
 #SBATCH --nodelist=cgput004
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=6    
 #SBATCH --mem=120G           
 #SBATCH --time=72:00:00
@@ -22,6 +22,5 @@ echo "Start time: $(date)"
 source /home/cxv166/PhantomTesting/.venv/bin/activate
 
 # Run training
-python training/cycle_gan_train.py
-
+torchrun --nproc_per_node=4 /home/cxv166/PhantomTesting/Code/training/cycle_gan_train.py
 echo "End time: $(date)"
