@@ -1,15 +1,20 @@
+"""
+Vanilla (single-GPU, no DDP) training loop for CycleGAN.
+Use this for debugging or when DDP is not available.
+
+Usage:
+    uv run python Code/training/cycle_gan_train_vanilla.py
+"""
 import torch
 import csv
 import os
 import time
 import random
 from torch.utils.data import DataLoader, Subset
-from torch.utils.data.distributed import DistributedSampler
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 from models.cycle_gan_model import CycleGANModel
 from data.PSDDataset import PSDDataset
 from tqdm import tqdm
+
 
 class CycleGANOptions:
     def __init__(self):
@@ -39,7 +44,7 @@ class CycleGANOptions:
         self.direction = 'AtoB'
         self.serial_batches = False
         self.num_threads = 4
-        self.batch_size = 1          # 1 per GPU, 4 effective with 4 GPUs
+        self.batch_size = 1
         self.load_size = 286
         self.crop_size = 256
         self.max_dataset_size = float('inf')
@@ -82,17 +87,6 @@ class CycleGANOptions:
         self.lambda_identity = 0.5
 
 
-def setup_ddp():
-    dist.init_process_group(backend="nccl")
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
-    return local_rank
-
-
-def cleanup_ddp():
-    dist.destroy_process_group()
-
-
 def format_time(seconds):
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
@@ -101,65 +95,42 @@ def format_time(seconds):
 
 
 def train():
-    local_rank = setup_ddp()
-    num_epochs = 50                  # reduced from 200
-    device = torch.device(f"cuda:{local_rank}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    num_epochs = 50
 
     opt = CycleGANOptions()
-    opt.gpu_ids = [local_rank]
+    opt.gpu_ids = [0] if torch.cuda.is_available() else []
 
     model = CycleGANModel(opt)
-
-    # Wrap sub-networks with DDP before setup(), so optimizers are created
-    # from DDP-hosting references.  static_graph=True avoids the overhead
-    # of find_unused_parameters (all nets are used every iteration).
-    # broadcast_buffers=False because InstanceNorm has no running stats,
-    # and disabling it prevents version counter corruption when a network
-    # is called multiple times per iteration (e.g. G_A in forward() and
-    # backward_G identity loss).
-    for name in model.model_names:
-        if isinstance(name, str):
-            net = getattr(model, 'net' + name)
-            net = net.to(device)
-            net = DDP(net, device_ids=[local_rank],
-                      broadcast_buffers=False,
-                      static_graph=True)
-            setattr(model, 'net' + name, net)
-
     model.setup(opt)
 
     root_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
     dataset = PSDDataset(root_dir=root_dir)
 
-    # Subsample to keep training feasible
+    # Subsample for feasible training
     random.seed(42)
     indices = random.sample(range(len(dataset)), min(500, len(dataset)))
     dataset = Subset(dataset, indices)
 
-    sampler = DistributedSampler(dataset, shuffle=True)
-    img_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=False,
-                            num_workers=4, pin_memory=True, sampler=sampler)
+    img_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True,
+                            num_workers=4, pin_memory=True)
 
-    # CSV logging only on rank 0
-    if local_rank == 0:
-        csv_path = os.path.join(opt.checkpoints_dir, 'cyclegan_training_losses.csv')
-        csv_file = open(csv_path, 'w', newline='')
-        csv_writer = csv.writer(csv_file)
-        headers = ['Epoch', 'Batch'] + model.loss_names
-        csv_writer.writerow(headers)
+    # CSV logging
+    csv_path = os.path.join(opt.checkpoints_dir, 'cyclegan_training_losses_vanilla.csv')
+    csv_file = open(csv_path, 'w', newline='')
+    csv_writer = csv.writer(csv_file)
+    headers = ['Epoch', 'Batch'] + model.loss_names
+    csv_writer.writerow(headers)
 
     train_start = time.time()
-
-    # Epoch bar only on rank 0
-    epoch_iter = tqdm(range(num_epochs), desc="Training", unit="epoch") if local_rank == 0 else range(num_epochs)
+    epoch_iter = tqdm(range(num_epochs), desc="Training", unit="epoch")
 
     for epoch in epoch_iter:
-        sampler.set_epoch(epoch)    
         epoch_start = time.time()
         model.update_learning_rate()
 
         batch_iter = tqdm(img_loader, desc=f"Epoch {epoch}/{num_epochs}",
-                          unit="batch", leave=False) if local_rank == 0 else img_loader
+                          unit="batch", leave=False)
 
         for batch_idx, (I_smooth, I_sharp, _, _) in enumerate(batch_iter):
             I_smooth = I_smooth.to(device, non_blocking=True)
@@ -175,34 +146,29 @@ def train():
             model.set_input(data)
             model.optimize_parameters()
 
-            if local_rank == 0:
-                losses = model.get_current_losses()
-                batch_iter.set_postfix({k: f"{v:.3f}" for k, v in losses.items()})
+            losses = model.get_current_losses()
+            batch_iter.set_postfix({k: f"{v:.3f}" for k, v in losses.items()})
 
-                if batch_idx % 10 == 0:
-                    row = [epoch, batch_idx] + [losses[k] for k in model.loss_names]
-                    csv_writer.writerow(row)
-                    csv_file.flush()
+            if batch_idx % 10 == 0:
+                row = [epoch, batch_idx] + [losses[k] for k in model.loss_names]
+                csv_writer.writerow(row)
+                csv_file.flush()
 
-        if local_rank == 0:
-            epoch_time = time.time() - epoch_start
-            elapsed = time.time() - train_start
-            eta = (num_epochs - epoch - 1) * epoch_time
-            epoch_iter.set_postfix({
-                "epoch_time": format_time(epoch_time),
-                "ETA": format_time(eta),
-                "elapsed": format_time(elapsed)
-            })
+        epoch_time = time.time() - epoch_start
+        elapsed = time.time() - train_start
+        eta = (num_epochs - epoch - 1) * epoch_time
+        epoch_iter.set_postfix({
+            "epoch_time": format_time(epoch_time),
+            "ETA": format_time(eta),
+            "elapsed": format_time(elapsed)
+        })
 
-            if epoch % 10 == 0:
-                model.save_networks(str(epoch))
-                model.save_networks('latest')
+        if epoch % 10 == 0:
+            model.save_networks(str(epoch))
+            model.save_networks('latest')
 
-    if local_rank == 0:
-        csv_file.close()
-        print(f"\nTraining complete. Total time: {format_time(time.time() - train_start)}")
-
-    cleanup_ddp()
+    csv_file.close()
+    print(f"\nTraining complete. Total time: {format_time(time.time() - train_start)}")
 
 
 if __name__ == "__main__":
