@@ -45,8 +45,6 @@ class CycleGANOptions:
         self.serial_batches = False
         self.num_threads = 4
         self.batch_size = 1
-        self.load_size = 286
-        self.crop_size = 256
         self.max_dataset_size = float('inf')
         self.no_flip = False
         self.display_winsize = 256
