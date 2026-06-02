@@ -22,5 +22,5 @@ echo "Start time: $(date)"
 source /home/cxv166/PhantomTesting/.venv/bin/activate
 
 # Run training
-python training/cut_train.py
+torchrun --standalone --nproc_per_node=2 training/pix2pix_train.py
 echo "End time: $(date)"
