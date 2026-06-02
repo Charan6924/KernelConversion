@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=cut_train
+#SBATCH --job-name=pix2pix_train
 #SBATCH --partition=cgpudlw
 #SBATCH --nodelist=cgput004
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=6    
 #SBATCH --mem=64G           
 #SBATCH --time=72:00:00
