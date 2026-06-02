@@ -4,7 +4,7 @@
 #SBATCH --nodelist=cgput004
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=6    
-#SBATCH --mem=120G           
+#SBATCH --mem=64G           
 #SBATCH --time=72:00:00
 #SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
 #SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
@@ -22,5 +22,5 @@ echo "Start time: $(date)"
 source /home/cxv166/PhantomTesting/.venv/bin/activate
 
 # Run training
-python training/cycle_gan_train_vanilla.py
+python training/cut_train.py
 echo "End time: $(date)"

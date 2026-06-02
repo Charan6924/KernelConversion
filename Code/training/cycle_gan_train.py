@@ -109,7 +109,7 @@ def train():
 
     opt = CycleGANOptions()
     opt.gpu_ids = [local_rank]
-    num_epochs = 50
+    num_epochs = 200
 
     model = CycleGANModel(opt)
 
@@ -136,7 +136,7 @@ def train():
 
     # Subsample to keep training feasible
     random.seed(42)
-    indices = random.sample(range(len(dataset)), min(7500, len(dataset)))
+    indices = random.sample(range(len(dataset)), min(4000, len(dataset)))
     dataset = Subset(dataset, indices)
 
     sampler = DistributedSampler(dataset, shuffle=True)
