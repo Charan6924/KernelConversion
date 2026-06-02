@@ -16,7 +16,7 @@ class CUTTrainOptions:
         self.easy_label = 'cut_train'
         self.gpu_ids = [0] 
         self.checkpoints_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/training_output_cut'
-        
+        self.preprocess = 'none'
         self.model = 'cut'
         self.input_nc = 1
         self.output_nc = 1
@@ -80,6 +80,7 @@ class CUTTrainOptions:
 
         self.CUT_mode = 'CUT'
         self.lambda_GAN = 1.0
+        self.lambda_smooth = 0.0
         self.lambda_NCE = 1.0  # Default for standard CUT
         self.nce_idt = True    # Default for standard CUT
         self.nce_layers = '0,4,8,12,16'
@@ -90,6 +91,15 @@ class CUTTrainOptions:
         self.num_patches = 256
         self.flip_equivariance = False 
         self.device = 'cuda:0'
+        self.lambda_spa_unsup_A = 1.0   # Weight for unsupervised spatial loss using optical flow
+        self.lambda_kl = 1.0            # Weight for KL divergence structural consistency
+        self.unsup_idt_spa = True       # Apply unsupervised spatial loss to identity mapping as well
+
+        # Hyperparameters for Optical Flow Generation & Noise
+        self.motion_level = 8.0         # Blur/scale factor for random optical flow generation
+        self.shift_level = 10.0         # Spatial translation/pixel shift bounds
+        self.scale_level = 0.0          # Zooming/scaling bounds for generated flow
+        self.noise_level = 0.001
 
 
 def format_time(seconds):
@@ -101,8 +111,8 @@ def format_time(seconds):
 def train():
     opt = CUTTrainOptions()
     model = CUTModel(opt=opt)
+    model.setup(opt)
     device = 'cuda'
-    model.to('cuda')
     num_epochs = opt.n_epochs
 
     root_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
@@ -111,6 +121,15 @@ def train():
     indices = random.sample(range(len(dataset)), min(1000, len(dataset)))
     dataset = Subset(dataset, indices)
     img_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True,num_workers=4, pin_memory=True)
+
+    first_batch = next(iter(img_loader))
+    dummy_data = {
+        'A': first_batch[0].to(device),
+        'B': first_batch[1].to(device),
+        'A_paths': '',
+        'B_paths': ''
+    }
+    model.data_dependent_initialize(dummy_data)
 
     csv_path = os.path.join(opt.checkpoints_dir, 'cyclegan_training_losses_vanilla.csv')
     csv_file = open(csv_path, 'w', newline='')
@@ -123,7 +142,7 @@ def train():
 
     for epoch in epoch_iter:
         epoch_start = time.time()
-        model.update_learning_rate()
+        
 
         batch_iter = tqdm(img_loader, desc=f"Epoch {epoch}/{num_epochs}", unit="batch", leave=False)
 
@@ -162,6 +181,7 @@ def train():
             model.save_networks(str(epoch))
             model.save_networks('latest')
 
+        model.update_learning_rate()
     csv_file.close()
     print(f"\nTraining complete. Total time: {format_time(time.time() - train_start)}")
 
