@@ -996,6 +996,19 @@ wheels = [
 ]
 
 [[package]]
+name = "numpngw"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bf/e2/f74bc6c0161d164840f899d16c60059f58f8af97a79333f5ff5f2d757345/numpngw-0.1.4.tar.gz", hash = "sha256:54db993fd8d6ad3a96838a860224656b3d691b7692bd050e8ac145b2fbc89a8e", size = 29078, upload-time = "2024-06-02T19:05:20.788Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/b4/796f685336ab82e1d324243fd58a8e58507cdc54db3d553ac39b1d16bc5d/numpngw-0.1.4-py3-none-any.whl", hash = "sha256:0e84506168ffeefe0994c0b2fc38420e5e0047b2aa424c8b4205511c232ab711", size = 21371, upload-time = "2024-06-02T19:05:19.199Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1526,6 +1539,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "nibabel" },
     { name = "niftiview" },
+    { name = "numpngw" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opencv-python" },
@@ -1551,6 +1565,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "nibabel", specifier = ">=5.3.3" },
     { name = "niftiview", specifier = ">=1.1.2" },
+    { name = "numpngw", specifier = ">=0.1.4" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "opencv-python", specifier = ">=4.13.0.92" },
     { name = "pandas", specifier = ">=2.3.3" },
