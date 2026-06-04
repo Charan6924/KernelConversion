@@ -191,7 +191,7 @@ class BaseModel(ABC):
                 if isinstance(name, str):
                     save_filename = f"{epoch}_net_{name}.pth"
                     save_path = self.save_dir / save_filename
-                    os.makedirs(save_path,exist_ok=True)
+                    os.makedirs(self.save_dir,exist_ok=True)
                     net = getattr(self, "net" + name)
 
                     # 1. First, unwrap from DDP if it exists

@@ -14,7 +14,7 @@ import torch
 
 class Pix2PixOptions:
     def __init__(self):
-        self.name = 'pix2pix'
+        self.name = 'pix2pix_sh2sm'
         self.isTrain = True
         self.checkpoints_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/training_output_pix2pix'
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -104,8 +104,8 @@ def train():
             I_sharp  = I_sharp.to(device, non_blocking=True)
 
             data = {
-                'A': I_smooth,
-                'B': I_sharp,
+                'A': I_sharp,
+                'B': I_smooth,
                 'A_paths': '',
                 'B_paths': ''
             }
