@@ -125,7 +125,7 @@ def reconstruct_volume(sample, model, device, output_dir):
     num_slices = data_smooth.shape[2]
 
     vol_generated_sharp  = np.zeros_like(data_smooth, dtype=np.float32)
-    vol_generated_smooth = np.zeros_like(data_sharp,  dtype=np.float32)
+    #vol_generated_smooth = np.zeros_like(data_sharp,  dtype=np.float32)
 
     for k in range(num_slices):
         s_slice = data_smooth[:, :, k].copy()
@@ -145,28 +145,28 @@ def reconstruct_volume(sample, model, device, output_dir):
     
             model.set_input(data)
             model.forward()
-            I_gen_smooth = model.fake_A
             I_gen_sharp = model.fake_B
+            #I_gen_sharp = model.fake_B
 
         res_sharp  = I_gen_sharp.detach().cpu().numpy().squeeze()
-        res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()
+        #res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()
 
         res_sharp  = res_sharp.clip(0, 1.0)
-        res_smooth = res_smooth.clip(0, 1.0)
+        #res_smooth = res_smooth.clip(0, 1.0)
 
         vol_generated_sharp[:,  :, k] = (res_sharp * 4000) - 1000
-        vol_generated_smooth[:, :, k] = (res_smooth * 4000) - 1000
+        #vol_generated_smooth[:, :, k] = (res_smooth * 4000) - 1000
 
         vol_generated_sharp[:,  :, k] = vol_generated_sharp[:,  :, k].clip(-1000, 3000)
-        vol_generated_smooth[:, :, k] = vol_generated_smooth[:, :, k].clip(-1000, 3000)
+        #vol_generated_smooth[:, :, k] = vol_generated_smooth[:, :, k].clip(-1000, 3000)
 
     nii_generated_sharp  = nib.Nifti1Image(vol_generated_sharp,  sample['sharp_affine'],  sample['sharp_header'])
-    nii_generated_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])
+    #nii_generated_smooth = nib.Nifti1Image(vol_generated_smooth, sample['smooth_affine'], sample['smooth_header'])
 
     smooth_output_path  = os.path.join(output_dir,'testA_fake', f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz')
     sharp_output_path = os.path.join(output_dir, 'testB_fake',f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz')
 
-    nib.save(nii_generated_smooth, smooth_output_path)
+    #nib.save(nii_generated_smooth, smooth_output_path)
     nib.save(nii_generated_sharp, sharp_output_path)
 
 

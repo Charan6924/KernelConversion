@@ -68,8 +68,8 @@ class CUTTrainOptions:
         self.epoch_count = 1
         self.pretrained_name = None
         
-        self.n_epochs = 200
-        self.n_epochs_decay = 200
+        self.n_epochs = 100
+        self.n_epochs_decay = 100
         self.beta1 = 0.5
         self.beta2 = 0.999
         self.lr = 0.0002
@@ -77,6 +77,8 @@ class CUTTrainOptions:
         self.pool_size = 0  
         self.lr_policy = 'linear'
         self.lr_decay_iters = 50
+        self.load_size = 512
+        self.crop_size = 512
 
         self.CUT_mode = 'CUT'
         self.lambda_GAN = 1.0
@@ -117,9 +119,9 @@ def train():
 
     root_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
     dataset = PSDDataset(root_dir = root_dir)
-    random.seed(42)
-    indices = random.sample(range(len(dataset)), min(1000, len(dataset)))
-    dataset = Subset(dataset, indices)
+    # random.seed(42)
+    # indices = random.sample(range(len(dataset)), min(1000, len(dataset)))
+    # dataset = Subset(dataset, indices)
     img_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True,num_workers=4, pin_memory=True)
 
     first_batch = next(iter(img_loader))

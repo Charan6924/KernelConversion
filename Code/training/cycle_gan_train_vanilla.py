@@ -29,7 +29,7 @@ class CycleGANOptions:
         self.preprocess = 'none'
         self.ngf = 64
         self.ndf = 64
-        self.netG = 'resnet_9blocks'
+        self.netG = 'unet_256'
         self.netD = 'basic'
         self.n_layers_D = 3
         self.normG = 'instance'
@@ -106,9 +106,9 @@ def train():
     dataset = PSDDataset(root_dir=root_dir)
 
     # Subsample for feasible training
-    random.seed(42)
-    indices = random.sample(range(len(dataset)), min(1000, len(dataset)))
-    dataset = Subset(dataset, indices)
+    # random.seed(42)
+    # indices = random.sample(range(len(dataset)), min(1000, len(dataset)))
+    # dataset = Subset(dataset, indices)
 
     img_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True,
                             num_workers=4, pin_memory=True)
