@@ -13,6 +13,10 @@ from models.KernelEstimator import KernelEstimator
 from utils.utils import compute_fft, spline_to_kernel
 from scipy.interpolate import CubicSpline
 
+'''
+Reconstructing patient volumes with ground truth phantom measurements
+'''
+
 # device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # model = KernelEstimator()
 # checkpoint = torch.load("/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/training_output_kernel256/checkpoints/best_checkpoint.pth", map_location=device)

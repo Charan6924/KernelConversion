@@ -38,7 +38,7 @@ class CUTTrainOptions:
         self.direction = 'AtoB'
         self.serial_batches = False
         self.num_threads = 4
-        self.batch_size = 1
+        self.batch_size = 2
         self.max_dataset_size = float('inf')
         self.no_flip = False
         self.display_winsize = 256
@@ -68,8 +68,8 @@ class CUTTrainOptions:
         self.epoch_count = 1
         self.pretrained_name = None
         
-        self.n_epochs = 100
-        self.n_epochs_decay = 100
+        self.n_epochs = 50
+        self.n_epochs_decay = 50  # 100 epochs total instead of 200
         self.beta1 = 0.5
         self.beta2 = 0.999
         self.lr = 0.0002

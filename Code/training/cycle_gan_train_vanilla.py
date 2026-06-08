@@ -29,7 +29,7 @@ class CycleGANOptions:
         self.preprocess = 'none'
         self.ngf = 64
         self.ndf = 64
-        self.netG = 'unet_256'
+        self.netG = 'resnet_9blocks'
         self.netD = 'basic'
         self.n_layers_D = 3
         self.normG = 'instance'
@@ -44,7 +44,7 @@ class CycleGANOptions:
         self.direction = 'AtoB'
         self.serial_batches = False
         self.num_threads = 4
-        self.batch_size = 1
+        self.batch_size = 2
         self.max_dataset_size = float('inf')
         self.no_flip = False
         self.display_winsize = 256
@@ -71,8 +71,8 @@ class CycleGANOptions:
         self.continue_train = False
         self.epoch_count = 1
         self.pretrained_name = None
-        self.n_epochs = 100
-        self.n_epochs_decay = 100
+        self.n_epochs = 50
+        self.n_epochs_decay = 50
         self.beta1 = 0.5
         self.beta2 = 0.999
         self.lr = 0.0002
