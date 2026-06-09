@@ -1,5 +1,6 @@
 srun -p cgpudlw --nodelist=cgput004 -c 24 --time=72:00:00 --gres=gpu:4 --mem=120g --pty /bin/bash
 srun -A dlw -p gpu --gres=gpu:1 --mem=16gb --constraint=gpu2h100 --pty bash
+srun -A dlw -p gpu --gres=gpu:1 --mem=16gb --constraint=gpu4090 --pty bash
 torchrun --nproc_per_node=4 ddpTrain.py
 torchrun --nproc_per_node=4 ddpTrainAdvaserial.py
 srun --jobid=50199 --overlap --pty bash
