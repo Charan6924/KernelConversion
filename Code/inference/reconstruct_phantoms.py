@@ -106,54 +106,5 @@ for d in loader:
         psnr_sh2sm_list.append(psnr_sh2sm)
         ssim_sh2sm_list.append(ssim_sh2sm)
 
-print(f"smooth→sharp | PSNR: {np.mean(psnr_sm2sh_list):.2f} dB  SSIM: {np.mean(ssim_sm2sh_list):.4f}")
-print(f"sharp→smooth | PSNR: {np.mean(psnr_sh2sm_list):.2f} dB  SSIM: {np.mean(ssim_sh2sm_list):.4f}")
-
-# --- Metric plots ---
-slices = range(1, len(psnr_sm2sh_list) + 1)
-
-fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-fig.suptitle("Per-Slice Metrics", fontsize=14)
-
-# PSNR: smooth→sharp
-axes[0, 0].plot(slices, psnr_sm2sh_list, color='steelblue', linewidth=1)
-axes[0, 0].axhline(np.mean(psnr_sm2sh_list), color='steelblue', linestyle='--', linewidth=1.2, label=f"Mean: {np.mean(psnr_sm2sh_list):.2f} dB")
-axes[0, 0].set_title("PSNR — smooth → sharp")
-axes[0, 0].set_xlabel("Slice index")
-axes[0, 0].set_ylabel("PSNR (dB)")
-axes[0, 0].legend()
-axes[0, 0].grid(True, alpha=0.3)
-
-# PSNR: sharp→smooth
-axes[0, 1].plot(slices, psnr_sh2sm_list, color='darkorange', linewidth=1)
-axes[0, 1].axhline(np.mean(psnr_sh2sm_list), color='darkorange', linestyle='--', linewidth=1.2, label=f"Mean: {np.mean(psnr_sh2sm_list):.2f} dB")
-axes[0, 1].set_title("PSNR — sharp → smooth")
-axes[0, 1].set_xlabel("Slice index")
-axes[0, 1].set_ylabel("PSNR (dB)")
-axes[0, 1].legend()
-axes[0, 1].grid(True, alpha=0.3)
-
-# SSIM: smooth→sharp
-axes[1, 0].plot(slices, ssim_sm2sh_list, color='steelblue', linewidth=1)
-axes[1, 0].axhline(np.mean(ssim_sm2sh_list), color='steelblue', linestyle='--', linewidth=1.2, label=f"Mean: {np.mean(ssim_sm2sh_list):.4f}")
-axes[1, 0].set_title("SSIM — smooth → sharp")
-axes[1, 0].set_xlabel("Slice index")
-axes[1, 0].set_ylabel("SSIM")
-axes[1, 0].set_ylim(0, 1)
-axes[1, 0].legend()
-axes[1, 0].grid(True, alpha=0.3)
-
-# SSIM: sharp→smooth
-axes[1, 1].plot(slices, ssim_sh2sm_list, color='darkorange', linewidth=1)
-axes[1, 1].axhline(np.mean(ssim_sh2sm_list), color='darkorange', linestyle='--', linewidth=1.2, label=f"Mean: {np.mean(ssim_sh2sm_list):.4f}")
-axes[1, 1].set_title("SSIM — sharp → smooth")
-axes[1, 1].set_xlabel("Slice index")
-axes[1, 1].set_ylabel("SSIM")
-axes[1, 1].set_ylim(0, 1)
-axes[1, 1].legend()
-axes[1, 1].grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.savefig("metrics_per_slice.png", dpi=150, bbox_inches='tight')
-plt.show()
-print("Saved metrics_per_slice.png")
+print(f"I_sharp vs I_generated_sharp | PSNR: {np.mean(psnr_sm2sh_list):.2f} dB  SSIM: {np.mean(ssim_sm2sh_list):.4f}")
+print(f"I_smooth vs I_generated_smooth | PSNR: {np.mean(psnr_sh2sm_list):.2f} dB  SSIM: {np.mean(ssim_sh2sm_list):.4f}")
