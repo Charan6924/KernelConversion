@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=kernel_train
-#SBATCH --account=dlw
-#SBATCH --partition=gpu
+#SBATCH --job-name=cycle_gan_train
+#SBATCH --partition=cgpudlw
+#SBATCH --nodelist=cgput004
 #SBATCH --gres=gpu:1
-#SBATCH --mem=64gb
-#SBATCH --constraint=gpu2h100
-#SBATCH --output=logs/train_%j.out
-#SBATCH --error=logs/train_%j.err
-
+#SBATCH --cpus-per-task=6    
+#SBATCH --mem=64G           
+#SBATCH --time=72:00:00
+#SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
+#SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
 
 # Activate virtual environment if you have one
 # source ~/venv/bin/activate
@@ -22,6 +22,6 @@ echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
 # Run training
-uv run training/FullTrainLoop.py
+uv run training/train.py
 
 echo "End time: $(date)"

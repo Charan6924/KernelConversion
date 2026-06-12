@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torch.nn import functional as F
 from data.PSDDataset import PSDDataset
+from data.Dataset import MTFPSDDataset
 from models.filterModel import FilterEstimator
 from models.KernelEstimator import KernelEstimator
 from utils.utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, generate_images, radial_to_2d, get_torch_spline
@@ -30,7 +31,7 @@ class TrainConfig:
     num_workers:    int   = 0
 
 
-def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_recon, device, epoch):
+def train_one_epoch(model, ft_model, image_loader, train_mtf_loader, optimizer, scaler, lambda_recon, device, epoch):
     model.train()
     ft_model.eval()
 
@@ -121,7 +122,7 @@ def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_rec
 
 
 @torch.no_grad()
-def validate(model, ft_model, image_loader, lambda_recon, device):
+def validate(model, ft_model, image_loader, val_mtf_loader, lambda_recon, device):
     model.eval()
 
     total_loss  = 0.0
@@ -266,6 +267,9 @@ def main():
 
     print(f"Images - train: {len(img_train)}, val: {len(img_val)}")
 
+    mtf_dataset = MTFPSDDataset(mtf_folder='/home/cxv166/PhantomTesting/MTF_Results_Output',psd_folder='/home/cxv166/PhantomTesting/PSD_Results_Output')
+    train_mtf_loader,val_mtf_loader, _ = mtf_dataset.build_dataloaders(mtf_folder='/home/cxv166/PhantomTesting/MTF_Results_Output',psd_folder='/home/cxv166/PhantomTesting/PSD_Results_Output')
+
     ft_model = FilterEstimator().to(device)
     ft_checkpoint = torch.load(
         '/home/cxv166/KernelConversionResearch/training_filter_model/checkpoints/epoch_17.pth',
@@ -305,11 +309,11 @@ def main():
         print(f"\n--- Epoch {ep}/{cfg.epochs}  (lr={cur_lr:.2e}) ---")
 
         train_stats, plot_data = train_one_epoch(
-            model, ft_model, img_train_loader,
+            model, ft_model, img_train_loader, train_mtf_loader,
             optimizer, scaler, cfg.lambda_recon,
             device, epoch=ep,
         )
-        val_stats = validate(model, ft_model, img_val_loader, cfg.lambda_recon, device)
+        val_stats = validate(model, ft_model, img_val_loader, val_mtf_loader,cfg.lambda_recon, device)
 
         plot_epoch_results(plot_data, ep, out_dir)
         scheduler.step(val_stats['total_loss'])

@@ -39,6 +39,9 @@ def compute_metrics(original, reconstructed, data_range=1.0):
         original = original.squeeze().cpu().numpy()
     if torch.is_tensor(reconstructed):
         reconstructed = reconstructed.squeeze().cpu().numpy()
+    print(f"[DEBUG] original    min={original.min():.4f}, max={original.max():.4f}")
+    print(f"[DEBUG] reconstructed min={reconstructed.min():.4f}, max={reconstructed.max():.4f}")
+    print(f"[DEBUG] data_range={data_range}")
 
     psnr_val = psnr(original, reconstructed, data_range=data_range)
     ssim_val = ssim(original, reconstructed, data_range=data_range)
@@ -83,13 +86,9 @@ model = KernelEstimator()
 model.to('cuda')
 checkpoint = torch.load('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/training_output_kernel256/checkpoints/best_checkpoint.pth')
 model.load_state_dict(checkpoint['model_state_dict'])
-print(ds1.RescaleSlope, ds1.RescaleIntercept)
-
 
 pixel_array1 = torch.from_numpy(dicom_to_normalized(ds1)).unsqueeze(0).unsqueeze(0)
 pixel_array2 = torch.from_numpy(dicom_to_normalized(ds2)).unsqueeze(0).unsqueeze(0)
-
-print(pixel_array1.min(),pixel_array1.max())
 
 psd_1 = compute_psd(pixel_array1, device = 'cuda').to('cuda')
 psd_2 = compute_psd(pixel_array2, device = 'cuda').to('cuda')
@@ -114,9 +113,6 @@ os.makedirs('/home/cxv166/PhantomTesting/Code/S2050_recon', exist_ok=True)
 save_to_dicom(ds1, Image_generated1, '/home/cxv166/PhantomTesting/Code/S2030_recon/I20')
 save_to_dicom(ds2, Image_generated2, '/home/cxv166/PhantomTesting/Code/S2050_recon/I20')
 
-# Cross-reconstruction metrics:
-# How well does S2030→S2050 match the real S2050 (pixel_array2)?
-# How well does S2050→S2030 match the real S2030 (pixel_array1)?
 psnr_1to2, ssim_1to2 = compute_metrics(pixel_array2, Image_generated2)
 psnr_2to1, ssim_2to1 = compute_metrics(pixel_array1, Image_generated1)
 

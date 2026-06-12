@@ -1,7 +1,6 @@
 '''using the trained model to reconstruct phantom volumes'''
 
 import torch
-import pydicom
 import numpy as np
 from models.KernelEstimator import KernelEstimator
 import os

@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torch.nn import functional as F
 from data.PSDDataset import PSDDataset
+from data.Dataset import MTFPSDDataset
 from models.filterModel import FilterEstimator
 from models.SplineEstimator import KernelEstimator
 from utils.utils import compute_gradient_norm, load_checkpoint, compute_psd, compute_fft, generate_images, radial_to_2d, get_torch_spline
@@ -21,27 +22,30 @@ class TrainConfig:
     image_root:     str   = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
     lr:             float = 3e-5
     lambda_recon:   float = 0.1
+    lambda_mtf:     float = 1.0
     epochs:         int   = 100
     batch_size:     int   = 16
     resume:         bool  = False
     sched_factor:   float = 0.3
-    sched_patience: int   = 3
+    sched_patience: int   = 8
     sched_min_lr:   float = 1e-7
     num_workers:    int   = 0
 
 
-def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_recon, device, epoch):
+def train_one_epoch(model, ft_model, image_loader, train_mtf_loader, optimizer, scaler, lambda_recon, lambda_mtf, device, epoch):
     model.train()
     ft_model.eval()
 
     running_loss  = 0.0
     running_ft    = 0.0
     running_recon = 0.0
+    running_mtf   = 0.0
     running_grad  = 0.0
     n_batches     = 0
 
-    l1_loss = nn.L1Loss()
-    loader  = tqdm(image_loader, desc="Training", unit="batch")
+    l1_loss  = nn.L1Loss()
+    mtf_iter = iter(train_mtf_loader)
+    loader   = tqdm(image_loader, desc="Training", unit="batch")
 
     plot_data = None
 
@@ -51,6 +55,16 @@ def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_rec
         I_smooth_2 = I_smooth_2.to(device, non_blocking=True)
         I_sharp_2  = I_sharp_2.to(device, non_blocking=True)
 
+        # --- MTF batch (cycle if exhausted) ---
+        try:
+            psd_mtf, target_mtf, _ = next(mtf_iter)
+        except StopIteration:
+            mtf_iter = iter(train_mtf_loader)
+            psd_mtf, target_mtf, _ = next(mtf_iter)
+
+        psd_mtf    = psd_mtf.to(device, non_blocking=True)
+        target_mtf = target_mtf.to(device, non_blocking=True)   # (B, L)
+
         with torch.no_grad():
             psd_smooth = compute_psd(I_smooth_1, device='cuda').to(device, non_blocking=True)
             psd_sharp  = compute_psd(I_sharp_2,  device='cuda').to(device, non_blocking=True)
@@ -59,10 +73,10 @@ def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_rec
 
         with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=True):
             smooth_knots, smooth_cp = model(psd_smooth)
-            sharp_knots, sharp_cp = model(psd_sharp)
+            sharp_knots,  sharp_cp  = model(psd_sharp)
 
-            out_smooth = get_torch_spline(knots = smooth_knots, control_points = smooth_cp, num_points = 256)
-            out_sharp = get_torch_spline(knots = sharp_knots, control_points = sharp_cp, num_points = 256)
+            out_smooth = get_torch_spline(knots=smooth_knots, control_points=smooth_cp, num_points=256)
+            out_sharp  = get_torch_spline(knots=sharp_knots,  control_points=sharp_cp,  num_points=256)
 
             k_smooth  = radial_to_2d(out_smooth, grid_size=512)
             k_sharp   = radial_to_2d(out_sharp,  grid_size=512)
@@ -80,7 +94,18 @@ def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_rec
                 F.l1_loss(I_gen_smooth, I_smooth_2.squeeze(1).float())
             )
 
-            loss = ft_loss + lambda_recon * recon_loss
+            # --- MTF supervision ---
+            mtf_knots, mtf_cp = model(psd_mtf)
+            pred_mtf = get_torch_spline(knots=mtf_knots, control_points=mtf_cp, num_points=64)  # (B, 64)
+
+            if pred_mtf.shape[-1] != target_mtf.shape[-1]:
+                target_mtf = F.interpolate(
+                    target_mtf.unsqueeze(1), size=pred_mtf.shape[-1], mode='linear', align_corners=False
+                ).squeeze(1)
+
+            mtf_loss = l1_loss(pred_mtf, target_mtf)
+
+            loss = ft_loss + lambda_recon * recon_loss + lambda_mtf * mtf_loss
 
         optimizer.zero_grad(set_to_none=True)
         if scaler:
@@ -99,6 +124,7 @@ def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_rec
         running_loss  += loss.item()
         running_ft    += ft_loss.item()
         running_recon += recon_loss.item()
+        running_mtf   += mtf_loss.item()
         running_grad  += grad_norm
         n_batches     += 1
 
@@ -118,21 +144,24 @@ def train_one_epoch(model, ft_model, image_loader, optimizer, scaler, lambda_rec
         'total_loss': running_loss  / denom,
         'ft_loss':    running_ft    / denom,
         'recon_loss': running_recon / denom,
+        'mtf_loss':   running_mtf   / denom,
         'grad_norm':  running_grad  / denom,
     }
     return stats, plot_data
 
 
 @torch.no_grad()
-def validate(model, ft_model, image_loader, lambda_recon, device):
+def validate(model, ft_model, image_loader, val_mtf_loader, lambda_recon, lambda_mtf, device):
     model.eval()
 
     total_loss  = 0.0
     total_ft    = 0.0
     total_recon = 0.0
+    total_mtf   = 0.0
     num_batches = 0
 
-    l1_loss = nn.L1Loss()
+    l1_loss  = nn.L1Loss()
+    mtf_iter = iter(val_mtf_loader)
 
     for I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2 in image_loader:
         I_smooth_1 = I_smooth_1.to(device, non_blocking=True)
@@ -140,16 +169,25 @@ def validate(model, ft_model, image_loader, lambda_recon, device):
         I_smooth_2 = I_smooth_2.to(device, non_blocking=True)
         I_sharp_2  = I_sharp_2.to(device, non_blocking=True)
 
+        try:
+            psd_mtf, target_mtf, _ = next(mtf_iter)
+        except StopIteration:
+            mtf_iter = iter(val_mtf_loader)
+            psd_mtf, target_mtf, _ = next(mtf_iter)
+
+        psd_mtf    = psd_mtf.to(device, non_blocking=True)
+        target_mtf = target_mtf.to(device, non_blocking=True)
+
         psd_smooth = compute_psd(I_smooth_1, device='cuda').to(device, non_blocking=True)
         psd_sharp  = compute_psd(I_sharp_2,  device='cuda').to(device, non_blocking=True)
 
         teacher_s2sh, teacher_sh2s = ft_model(psd_smooth, psd_sharp)
 
         smooth_knots, smooth_cp = model(psd_smooth)
-        sharp_knots, sharp_cp  = model(psd_sharp)
+        sharp_knots,  sharp_cp  = model(psd_sharp)
 
-        out_smooth = get_torch_spline(knots = smooth_knots, control_points = smooth_cp, num_points = 256)
-        out_sharp = get_torch_spline(knots = sharp_knots, control_points = sharp_cp, num_points = 256)
+        out_smooth = get_torch_spline(knots=smooth_knots, control_points=smooth_cp, num_points=256)
+        out_sharp  = get_torch_spline(knots=sharp_knots,  control_points=sharp_cp,  num_points=256)
 
         k_smooth  = radial_to_2d(out_smooth, grid_size=512)
         k_sharp   = radial_to_2d(out_sharp,  grid_size=512)
@@ -166,9 +204,20 @@ def validate(model, ft_model, image_loader, lambda_recon, device):
             F.l1_loss(I_gen_smooth, I_smooth_2.squeeze(1).float())
         )
 
-        total_loss  += (ft_loss + lambda_recon * recon_loss).item()
+        mtf_knots, mtf_cp = model(psd_mtf)
+        pred_mtf = get_torch_spline(knots=mtf_knots, control_points=mtf_cp, num_points=64)
+
+        if pred_mtf.shape[-1] != target_mtf.shape[-1]:
+            target_mtf = F.interpolate(
+                target_mtf.unsqueeze(1), size=pred_mtf.shape[-1], mode='linear', align_corners=False
+            ).squeeze(1)
+
+        mtf_loss = l1_loss(pred_mtf, target_mtf)
+
+        total_loss  += (ft_loss + lambda_recon * recon_loss + lambda_mtf * mtf_loss).item()
         total_ft    += ft_loss.item()
         total_recon += recon_loss.item()
+        total_mtf   += mtf_loss.item()
         num_batches += 1
 
     denom = max(num_batches, 1)
@@ -176,6 +225,7 @@ def validate(model, ft_model, image_loader, lambda_recon, device):
         'total_loss': total_loss  / denom,
         'ft_loss':    total_ft    / denom,
         'recon_loss': total_recon / denom,
+        'mtf_loss':   total_mtf   / denom,
     }
 
 
@@ -234,7 +284,7 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg    = TrainConfig()
 
-    out_dir  = Path("training_output_kernel2d")
+    out_dir  = Path("training_output_spline_mtf")
     ckpt_dir = out_dir / "checkpoints"
     for d in [out_dir, ckpt_dir]:
         d.mkdir(parents=True, exist_ok=True)
@@ -244,8 +294,8 @@ def main():
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow([
         'epoch', 'learning_rate',
-        'train_total_loss', 'train_ft_loss', 'train_recon_loss', 'train_grad_norm',
-        'val_total_loss', 'val_ft_loss', 'val_recon_loss',
+        'train_total_loss', 'train_ft_loss', 'train_recon_loss', 'train_mtf_loss', 'train_grad_norm',
+        'val_total_loss', 'val_ft_loss', 'val_recon_loss', 'val_mtf_loss',
     ])
 
     print(f"Device: {device}  |  lr={cfg.lr}  |  epochs={cfg.epochs}")
@@ -271,6 +321,15 @@ def main():
     )
 
     print(f"Images - train: {len(img_train)}, val: {len(img_val)}")
+
+    mtf_dataset = MTFPSDDataset(
+        mtf_folder='/home/cxv166/PhantomTesting/MTF_Results_Output',
+        psd_folder='/home/cxv166/PhantomTesting/PSD_Results_Output',
+    )
+    train_mtf_loader, val_mtf_loader, _ = mtf_dataset.build_dataloaders(
+        mtf_folder='/home/cxv166/PhantomTesting/MTF_Results_Output',
+        psd_folder='/home/cxv166/PhantomTesting/PSD_Results_Output',
+    )
 
     ft_model = FilterEstimator().to(device)
     ft_checkpoint = torch.load(
@@ -311,11 +370,14 @@ def main():
         print(f"\n--- Epoch {ep}/{cfg.epochs}  (lr={cur_lr:.2e}) ---")
 
         train_stats, plot_data = train_one_epoch(
-            model, ft_model, img_train_loader,
-            optimizer, scaler, cfg.lambda_recon,
+            model, ft_model, img_train_loader, train_mtf_loader,
+            optimizer, scaler, cfg.lambda_recon, cfg.lambda_mtf,
             device, epoch=ep,
         )
-        val_stats = validate(model, ft_model, img_val_loader, cfg.lambda_recon, device)
+        val_stats = validate(
+            model, ft_model, img_val_loader, val_mtf_loader,
+            cfg.lambda_recon, cfg.lambda_mtf, device,
+        )
 
         plot_epoch_results(plot_data, ep, out_dir)
         scheduler.step(val_stats['total_loss'])
@@ -326,24 +388,24 @@ def main():
 
         csv_writer.writerow([
             ep, new_lr,
-            train_stats['total_loss'], train_stats['ft_loss'], train_stats['recon_loss'], train_stats['grad_norm'],
-            val_stats['total_loss'],   val_stats['ft_loss'],   val_stats['recon_loss'],
+            train_stats['total_loss'], train_stats['ft_loss'], train_stats['recon_loss'], train_stats['mtf_loss'], train_stats['grad_norm'],
+            val_stats['total_loss'],   val_stats['ft_loss'],   val_stats['recon_loss'],   val_stats['mtf_loss'],
         ])
         csv_file.flush()
 
         print(
             f"  train - total: {train_stats['total_loss']:.4f}  ft: {train_stats['ft_loss']:.4f}"
-            f"  recon: {train_stats['recon_loss']:.4f}  grad: {train_stats['grad_norm']:.4f}"
+            f"  recon: {train_stats['recon_loss']:.4f}  mtf: {train_stats['mtf_loss']:.4f}  grad: {train_stats['grad_norm']:.4f}"
         )
         print(
             f"  val   - total: {val_stats['total_loss']:.4f}  ft: {val_stats['ft_loss']:.4f}"
-            f"  recon: {val_stats['recon_loss']:.4f}"
+            f"  recon: {val_stats['recon_loss']:.4f}  mtf: {val_stats['mtf_loss']:.4f}"
         )
 
         is_best = val_stats['total_loss'] < best_val
         if is_best:
-            best_val = val_stats['total_loss']
-            print(f"  ** new best val loss: {best_val:.6f} **")
+            best_val = val_stats['total_loss']  # ← consistent
+            print(f"  ** new best val recon: {best_val:.6f} **")
 
         ckpt = {
             'epoch':                ep,
@@ -353,6 +415,7 @@ def main():
             'scaler_state_dict':    scaler.state_dict(),
             'best_val_loss':        best_val,
             'lambda_recon':         cfg.lambda_recon,
+            'lambda_mtf':           cfg.lambda_mtf,
             'learning_rate':        cfg.lr,
         }
         torch.save(ckpt, ckpt_dir / f"epoch_{ep}_checkpoint.pth")

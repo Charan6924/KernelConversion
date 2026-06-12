@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model = KernelEstimator()
-checkpoint = torch.load("/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/training_output_spline/checkpoints/best_checkpoint.pth", map_location=device)
+checkpoint = torch.load("/home/cxv166/PhantomTesting/Code/training_output_spline_mtf_2/checkpoints/best_checkpoint.pth", map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.to(device)
 model.eval()
@@ -20,7 +20,7 @@ data_root = "/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root"
 dataset = TestDataset(root_dir=data_root, preload=True)
 print('Loaded test dataset')
 
-output_dir = "/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_spline"
+output_dir = "/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_spline_2"
 os.makedirs(output_dir, exist_ok=True)
 plot_dir = os.path.join(output_dir, "model_output_plots")
 os.makedirs(plot_dir, exist_ok=True)

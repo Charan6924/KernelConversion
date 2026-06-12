@@ -17,4 +17,4 @@ cd /home/cxv166/PhantomTesting/Code
 
 source /home/cxv166/PhantomTesting/.venv/bin/activate
 
-PYTHONPATH=$(pwd) python inference/Kernel_convert_inference.py
+PYTHONPATH=$(pwd) python inference/reconstruct.py
