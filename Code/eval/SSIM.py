@@ -6,17 +6,17 @@ import csv
 import os
 
 smooth_real_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testA'
-smooth_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_spline_2/testA_fake'
+smooth_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testA_fake'
 sharp_real_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testB'
-sharp_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_spline_2/testB_fake'
+sharp_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testB_fake'
 
-output_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/eval_spline_2/ssim_results'
+output_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/eval_cyclegan/ssim_results'
 os.makedirs(output_dir, exist_ok=True)
 
 smooth_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testA/*.nii', recursive=False))
-fake_smooth_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_spline_2/testA_fake/*.nii.gz', recursive=False))
+fake_smooth_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testA_fake/*.nii.gz', recursive=False))
 sharp_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testB/*.nii', recursive=False))
-fake_sharp_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_spline_2/testB_fake/*.nii.gz', recursive=False))
+fake_sharp_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testB_fake/*.nii.gz', recursive=False))
 
 assert smooth_files, "No smooth real files found!"
 assert sharp_files, "No sharp real files found!"
@@ -27,6 +27,13 @@ all_smooth_ssims = []
 all_sharp_ssims = []
 summary_csv_path = os.path.join(output_dir, 'summary_ssim.csv')
 summary_rows = []
+
+real  = nib.load(smooth_files[0]).get_fdata()
+fake  = nib.load(fake_smooth_files[0]).get_fdata()
+print(f"Real  min={real.min():.1f} max={real.max():.1f} mean={real.mean():.1f}")
+print(f"Fake  min={fake.min():.1f} max={fake.max():.1f} mean={fake.mean():.1f}")
+
+
 
 for smooth_file, sharp_file, fake_smooth_file, fake_sharp_file in zip(
     smooth_files, sharp_files, fake_smooth_files, fake_sharp_files

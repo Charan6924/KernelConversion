@@ -41,8 +41,8 @@ class CycleGANOptions:
         self.epoch = 'latest'
         self.verbose = False
         self.suffix = ''
-        self.isTrain = True
-        self.phase = 'train'
+        self.isTrain = False
+        self.phase = 'test'
         self.amp = False
         self.display_freq = 400
         self.display_ncols = 4
@@ -93,6 +93,9 @@ def extract_kernel_name(filename):
 
 
 def reconstruct_volume(sample, model, device, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'testA_fake'), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'testB_fake'), exist_ok=True)
     data_smooth = sample['smooth_volume']
     data_sharp  = sample['sharp_volume']
     volume_id   = sample['volume_id']
@@ -127,12 +130,11 @@ def reconstruct_volume(sample, model, device, output_dir):
         res_sharp  = I_gen_sharp.detach().cpu().numpy().squeeze()
         res_smooth = I_gen_smooth.detach().cpu().numpy().squeeze()
 
-        res_sharp  = res_sharp.clip(0, 1.0)
+        res_sharp  = res_sharp.clip(0, 1.0)   
         res_smooth = res_smooth.clip(0, 1.0)
 
-        vol_generated_sharp[:,  :, k] = (res_sharp * 4000) - 1000
+        vol_generated_sharp[:,  :, k] = (res_sharp  * 4000) - 1000
         vol_generated_smooth[:, :, k] = (res_smooth * 4000) - 1000
-
         vol_generated_sharp[:,  :, k] = vol_generated_sharp[:,  :, k].clip(-1000, 3000)
         vol_generated_smooth[:, :, k] = vol_generated_smooth[:, :, k].clip(-1000, 3000)
 
@@ -141,7 +143,7 @@ def reconstruct_volume(sample, model, device, output_dir):
 
     smooth_output_path  = os.path.join(output_dir,'testA_fake', f'{volume_id}_{sharp_kernel}_to_{smooth_kernel}.nii.gz')
     sharp_output_path = os.path.join(output_dir, 'testB_fake',f'{volume_id}_{smooth_kernel}_to_{sharp_kernel}.nii.gz')
-
+    
     nib.save(nii_generated_smooth, smooth_output_path)
     nib.save(nii_generated_sharp, sharp_output_path)
 

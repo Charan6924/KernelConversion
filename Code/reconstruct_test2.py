@@ -30,7 +30,7 @@ def save_to_dicom(original_ds, reconstructed_array, output_path):
     ds.PixelData = arr.tobytes()
     ds.save_as(output_path)
 
-def compute_metrics(original, reconstructed, data_range=1.0):
+def compute_metrics(original, reconstructed, data_range=0.6):
     """
     Compute PSNR and SSIM between original and reconstructed images.
     Inputs can be torch tensors [1,1,H,W] or numpy arrays.
@@ -48,33 +48,33 @@ def compute_metrics(original, reconstructed, data_range=1.0):
 
     return psnr_val, ssim_val
 
-def plot_predicted_mtfs(mtf_1, mtf_2, save_path=None):
+def plot_filter_profiles(filter1to2, filter2to1, save_path=None):
     """
-    Plot the two predicted MTF curves from the KernelEstimator model.
-    mtf_1, mtf_2: model outputs, shape [1, N] or [N]
+    Plot the row-255 profile of each filter.
+    filter1to2, filter2to1: tensors of shape [..., H, W] (e.g. [1,1,512,512])
     """
-    m1 = mtf_1.squeeze().cpu().numpy()
-    m2 = mtf_2.squeeze().cpu().numpy()
+    f1 = filter1to2[:, 255, :]
+    f2 = filter2to1[:, 255, :]
 
-    freqs = np.linspace(0, 1, len(m1))  # Normalized spatial frequency [0, Nyquist]
+    if torch.is_tensor(f1):
+        f1 = f1.squeeze().detach().cpu().numpy()
+    if torch.is_tensor(f2):
+        f2 = f2.squeeze().detach().cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(freqs, m1, label='S2030 (smooth kernel)', color='steelblue', linewidth=2)
-    ax.plot(freqs, m2, label='S2050 (sharp kernel)', color='tomato', linewidth=2)
+    ax.plot(f1, label='filter1to2 (row 255)', color='steelblue', linewidth=2)
+    ax.plot(f2, label='filter2to1 (row 255)', color='tomato', linewidth=2)
 
-    ax.set_xlabel('Normalized Spatial Frequency (cycles/pixel)', fontsize=12)
-    ax.set_ylabel('MTF', fontsize=12)
-    ax.set_title('Predicted MTF — KernelEstimator', fontsize=13)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 5)
-    ax.axhline(0.5, color='gray', linestyle='--', linewidth=1, alpha=0.6, label='MTF50')
+    ax.set_xlabel('Pixel index', fontsize=12)
+    ax.set_ylabel('Filter value', fontsize=12)
+    ax.set_title('Filter Profiles at Row 255', fontsize=13)
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=150)
-        print(f"MTF plot saved to {save_path}")
+        print(f"Filter profile plot saved to {save_path}")
     plt.show()
 
 ds1 = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2030/I20')
@@ -98,12 +98,13 @@ print(psd_1.shape)
 with torch.no_grad():
     mtf_1 = model(psd_1)
     mtf_2 = model(psd_2)
-    plot_predicted_mtfs(mtf_1, mtf_2, save_path='/home/cxv166/PhantomTesting/Code/mtf_comparison.png')
 
 kernel_1, kernel_2 = spline_to_kernel(mtf_1,mtf_2)
 
 filter1to2 = kernel_2/(kernel_1 + 1e-10)
 filter2to1 = kernel_1/(kernel_2 + 1e-10)
+
+plot_filter_profiles(filter1to2, filter2to1, save_path='/home/cxv166/PhantomTesting/Code/filter_profiles.png')
 
 Image_generated1, Image_generated2 = generate_images(pixel_array1,pixel_array2,filter1to2,filter2to1)
 
