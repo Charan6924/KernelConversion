@@ -39,9 +39,9 @@ def compute_metrics(original, reconstructed, data_range=0.6):
         original = original.squeeze().cpu().numpy()
     if torch.is_tensor(reconstructed):
         reconstructed = reconstructed.squeeze().cpu().numpy()
-    print(f"[DEBUG] original    min={original.min():.4f}, max={original.max():.4f}")
-    print(f"[DEBUG] reconstructed min={reconstructed.min():.4f}, max={reconstructed.max():.4f}")
-    print(f"[DEBUG] data_range={data_range}")
+    print(f"original    min={original.min():.4f}, max={original.max():.4f}")
+    print(f"reconstructed min={reconstructed.min():.4f}, max={reconstructed.max():.4f}")
+    print(f"data_range={data_range}")
 
     psnr_val = psnr(original, reconstructed, data_range=data_range)
     ssim_val = ssim(original, reconstructed, data_range=data_range)
@@ -79,7 +79,7 @@ def plot_filter_profiles(filter1to2, filter2to1, save_path=None):
 
 ds1 = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2030/I20')
 pixel_array1 = ds1.pixel_array
-ds2 = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2050/I20')
+ds2 = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2020/I20')
 pixel_array2 = ds2.pixel_array
 
 model = KernelEstimator()
@@ -117,6 +117,18 @@ save_to_dicom(ds2, Image_generated2, '/home/cxv166/PhantomTesting/Code/S2050_rec
 psnr_1to2, ssim_1to2 = compute_metrics(pixel_array2, Image_generated2)
 psnr_2to1, ssim_2to1 = compute_metrics(pixel_array1, Image_generated1)
 
-print("=== Reconstruction Metrics ===")
-print(f"S2030 → S2050 | PSNR: {psnr_1to2:.2f} dB  | SSIM: {ssim_1to2:.4f}")
-print(f"S2050 → S2030 | PSNR: {psnr_2to1:.2f} dB  | SSIM: {ssim_2to1:.4f}")
+print(f"D → C | PSNR: {psnr_1to2:.2f} dB  | SSIM: {ssim_1to2:.4f}")
+print(f"C → D | PSNR: {psnr_2to1:.2f} dB  | SSIM: {ssim_2to1:.4f}")
+
+
+'''(phantomtesting) [cxv166@gput074 Code]$ python reconstruct_test2.py
+torch.Size([1, 1, 512, 512])
+Filter profile plot saved to /home/cxv166/PhantomTesting/Code/filter_profiles.png
+original    min=0.0000, max=0.4905
+reconstructed min=0.0000, max=0.4935
+data_range=0.6
+original    min=0.0000, max=0.5505
+reconstructed min=0.0000, max=0.5466
+data_range=0.6
+D → C | PSNR: 54.02 dB  | SSIM: 0.9946
+C → D | PSNR: 52.59 dB  | SSIM: 0.9848'''
