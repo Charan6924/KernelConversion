@@ -48,33 +48,34 @@ def compute_metrics(original, reconstructed, data_range=0.6):
 
     return psnr_val, ssim_val
 
-def plot_filter_profiles(filter1to2, filter2to1, save_path=None):
+def plot_mtfs(mtf_1, mtf_2, save_path=None):
     """
-    Plot the row-255 profile of each filter.
-    filter1to2, filter2to1: tensors of shape [..., H, W] (e.g. [1,1,512,512])
+    Plot the two MTF outputs from the model side by side.
+    mtf_1, mtf_2: tensors of shape [1, N] or [N]
     """
-    f1 = filter1to2[:, 255, :]
-    f2 = filter2to1[:, 255, :]
+    m1 = mtf_1.squeeze().detach().cpu().numpy()
+    m2 = mtf_2.squeeze().detach().cpu().numpy()
 
-    if torch.is_tensor(f1):
-        f1 = f1.squeeze().detach().cpu().numpy()
-    if torch.is_tensor(f2):
-        f2 = f2.squeeze().detach().cpu().numpy()
+    _, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(f1, label='filter1to2 (row 255)', color='steelblue', linewidth=2)
-    ax.plot(f2, label='filter2to1 (row 255)', color='tomato', linewidth=2)
+    axes[0].plot(m1, color='steelblue', linewidth=2)
+    axes[0].set_title('MTF 1 (S2030)', fontsize=13)
+    axes[0].set_xlabel('lp/mm', fontsize=12)
+    axes[0].set_ylabel('MTF value', fontsize=12)
+    axes[0].grid(True, alpha=0.3)
 
-    ax.set_xlabel('Pixel index', fontsize=12)
-    ax.set_ylabel('Filter value', fontsize=12)
-    ax.set_title('Filter Profiles at Row 255', fontsize=13)
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
+    axes[1].plot(m2, color='tomato', linewidth=2)
+    axes[1].set_title('MTF 2 (S2020)', fontsize=13)
+    axes[1].set_xlabel('lp/mm', fontsize=12)
+    axes[1].set_ylabel('MTF value', fontsize=12)
+    axes[1].grid(True, alpha=0.3)
+
+    plt.suptitle('Model MTF Outputs', fontsize=14)
     plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=150)
-        print(f"Filter profile plot saved to {save_path}")
+        print(f"MTF plot saved to {save_path}")
     plt.show()
 
 ds1 = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2030/I20')
@@ -104,7 +105,7 @@ kernel_1, kernel_2 = spline_to_kernel(mtf_1,mtf_2)
 filter1to2 = kernel_2/(kernel_1 + 1e-10)
 filter2to1 = kernel_1/(kernel_2 + 1e-10)
 
-plot_filter_profiles(filter1to2, filter2to1, save_path='/home/cxv166/PhantomTesting/Code/filter_profiles.png')
+plot_mtfs(mtf_1, mtf_2, save_path='/home/cxv166/PhantomTesting/Code/mtf_outputs.png')
 
 Image_generated1, Image_generated2 = generate_images(pixel_array1,pixel_array2,filter1to2,filter2to1)
 

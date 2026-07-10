@@ -6,17 +6,17 @@ import csv
 import os
 
 smooth_real_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testA'
-smooth_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testA_fake'
+smooth_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cut/testA_fake'
 sharp_real_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testB'
-sharp_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testB_fake'
+sharp_fake_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cut/testB_fake'
 
-output_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/eval_cyclegan/ssim_results'
+output_dir = r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/eval_cut/ssim_results'
 os.makedirs(output_dir, exist_ok=True)
 
 smooth_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testA/*.nii', recursive=False))
-fake_smooth_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testA_fake/*.nii.gz', recursive=False))
+fake_smooth_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cut/testA_fake/*.nii.gz', recursive=False))
 sharp_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/testB/*.nii', recursive=False))
-fake_sharp_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cyclegan/testB_fake/*.nii.gz', recursive=False))
+fake_sharp_files = sorted(glob.glob('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cut/testB_fake/*.nii.gz', recursive=False))
 
 assert smooth_files, "No smooth real files found!"
 assert sharp_files, "No sharp real files found!"
