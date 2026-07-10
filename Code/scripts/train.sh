@@ -9,11 +9,13 @@
 #SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
 #SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
 
-# Activate virtual environment if you have one
-# source ~/venv/bin/activate
+# Activate virtual environment 
+source /home/cxv166/PhantomTesting/.venv/bin/activate
+module load CUDA/12.8.0 
+module load GCC/12.3.0
 
 # Navigate to code directory
-cd /home/cxv166/PhantomTesting/Code
+cd /home/cxv166/PhantomTesting/Code/SynDiff
 
 # Print job info
 echo "Job ID: $SLURM_JOB_ID"
@@ -22,6 +24,6 @@ echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
 # Run training
-uv run training/train.py
+uv run train.py --input_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/ --output_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/train_output_diffusion/ --exp my_experiment
 
 echo "End time: $(date)"

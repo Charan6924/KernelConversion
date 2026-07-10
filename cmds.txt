@@ -4,6 +4,6 @@ srun -A dlw -p gpu --gres=gpu:1 --mem=16gb --constraint=gpu2h100 --pty bash
 srun -A dlw -p gpu --gres=gpu:1 --mem=64gb --constraint=gpu4090 --pty bash
 torchrun --nproc_per_node=4 ddpTrain.py
 torchrun --nproc_per_node=4 ddpTrainAdvaserial.py
-srun --jobid=3531100 --overlap --pty bash
+srun --jobid=3572672 --overlap --pty bash
 watch -n 0.1 nvidia-smi
 htop -u cxv166 
