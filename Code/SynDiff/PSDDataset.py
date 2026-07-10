@@ -169,14 +169,8 @@ class PSDDataset(Dataset):
         return I_smooth, I_sharp
 
     def __getitem__(self, idx):
-        I_smooth_1, I_sharp_1 = self._get_slice_pair(idx)
-        I_smooth_2, I_sharp_2 = self._get_slice_pair(idx) 
-
-        info = self.slice_data[idx]
-        smooth_kernel_idx = torch.tensor(info['smooth_kernel_idx'], dtype=torch.long)
-        sharp_kernel_idx  = torch.tensor(info['sharp_kernel_idx'],  dtype=torch.long)
-
-        return I_smooth_1, I_sharp_1, I_smooth_2, I_sharp_2
+        I_smooth, I_sharp = self._get_slice_pair(idx)
+        return I_smooth, I_sharp
 
     def __len__(self):
         return len(self.slice_data)

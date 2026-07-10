@@ -209,7 +209,7 @@ def train_syndiff(rank, gpu, args):
 
     # dataset = CreateDatasetSynthesis(phase = "train", input_path = args.input_path, contrast1 = args.contrast1, contrast2 = args.contrast2)
     # dataset_val = CreateDatasetSynthesis(phase = "val", input_path = args.input_path, contrast1 = args.contrast1, contrast2 = args.contrast2 )
-    full_dataset = PSDDataset(root_dir=args.input_path, image_size=args.image_size)
+    full_dataset = PSDDataset(root_dir=args.input_path)
 
     val_frac = 0.1
     n_val = int(len(full_dataset) * val_frac)
@@ -249,10 +249,10 @@ def train_syndiff(rank, gpu, args):
     to_range_0_1 = lambda x: (x + 1.) / 2.
 
     #networks performing reverse denoising
+    args.num_channels = 2
     gen_diffusive_1 = NCSNpp(args).to(device)
-    gen_diffusive_2 = NCSNpp(args).to(device)  
+    gen_diffusive_2 = NCSNpp(args).to(device)
     #networks performing translation
-    args.num_channels=1
     gen_non_diffusive_1to2 = backbones.generator_resnet.define_G(netG='resnet_6blocks',gpu_ids=[gpu])
     gen_non_diffusive_2to1 = backbones.generator_resnet.define_G(netG='resnet_6blocks',gpu_ids=[gpu])
     
@@ -376,6 +376,8 @@ def train_syndiff(rank, gpu, args):
         global_step, epoch, init_epoch = 0, 0, 0
     
     
+    torch.autograd.set_detect_anomaly(True)
+
     for epoch in range(init_epoch, args.num_epoch+1):
         train_sampler.set_epoch(epoch)
        
@@ -589,7 +591,6 @@ def train_syndiff(rank, gpu, args):
             errG2_cycle=F.l1_loss(x2_0_predict_cycle,real_data2)            
             errG_cycle = errG1_cycle + errG2_cycle            
 
-            torch.autograd.set_detect_anomaly(True)
             
             errG = args.lambda_l1_loss*errG_cycle +  errG_adv + errG_cycle_adv + args.lambda_l1_loss*errG_L1
             errG.backward()
@@ -699,23 +700,23 @@ def train_syndiff(rank, gpu, args):
             
             val_psnr_values[0,epoch, iteration] = psnr(real_data,fake_sample1, data_range=real_data.max())
 
-        for iteration, (y_val , x_val) in enumerate(data_loader_val): 
-        
-            real_data = x_val.to(device, non_blocking=True)
-            source_data = y_val.to(device, non_blocking=True)
-            
+        for iteration, (x_val , y_val) in enumerate(data_loader_val):
+
+            real_data = y_val.to(device, non_blocking=True)
+            source_data = x_val.to(device, non_blocking=True)
+
             x1_t = torch.cat((torch.randn_like(real_data),source_data),axis=1)
             #diffusion steps
-            fake_sample1 = sample_from_model(pos_coeff, gen_diffusive_1, args.num_timesteps, x1_t, T, args)
+            fake_sample1 = sample_from_model(pos_coeff, gen_diffusive_2, args.num_timesteps, x1_t, T, args)
 
-            
+
             fake_sample1 = to_range_0_1(fake_sample1) ; fake_sample1 = fake_sample1/fake_sample1.mean()
             real_data = to_range_0_1(real_data) ; real_data = real_data/real_data.mean()
-            
+
             fake_sample1=fake_sample1.cpu().numpy()
             real_data=real_data.cpu().numpy()
             val_l1_loss[1,epoch,iteration]=abs(fake_sample1 -real_data).mean()
-            
+
             val_psnr_values[1,epoch, iteration] = psnr(real_data,fake_sample1, data_range=real_data.max())
 
         print(np.nanmean(val_psnr_values[0,epoch,:]))
@@ -745,9 +746,9 @@ if __name__ == '__main__':
     
     parser.add_argument('--resume', action='store_true',default=False)
     
-    parser.add_argument('--image_size', type=int, default=32,
+    parser.add_argument('--image_size', type=int, default=512,
                             help='size of image')
-    parser.add_argument('--num_channels', type=int, default=3,
+    parser.add_argument('--num_channels', type=int, default=2,
                             help='channel of image')
     parser.add_argument('--centered', action='store_false', default=True,
                             help='-1,1 scale')
@@ -762,7 +763,7 @@ if __name__ == '__main__':
                             help='number of initial channels in denosing model')
     parser.add_argument('--n_mlp', type=int, default=3,
                             help='number of mlp layers for z')
-    parser.add_argument('--ch_mult', nargs='+', type=int,
+    parser.add_argument('--ch_mult', nargs='+', type=int, default=[1, 2, 2, 2],
                             help='channel multiplier')
     parser.add_argument('--num_res_blocks', type=int, default=2,
                             help='number of resnet blocks per scale')
