@@ -2,7 +2,7 @@
 #SBATCH --job-name=cycle_gan_train
 #SBATCH --partition=cgpudlw
 #SBATCH --nodelist=cgput004
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=6    
 #SBATCH --mem=64G           
 #SBATCH --time=72:00:00
@@ -23,7 +23,7 @@ echo "Node: $SLURM_NODELIST"
 echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
-# Run training
+# Run training (DDP with 2 GPUs)
 uv run train.py \
   --input_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/ \
   --output_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/train_output_diffusion/ \
@@ -31,7 +31,7 @@ uv run train.py \
   --batch_size 1 \
   --image_size 512 \
   --num_epoch 500 \
-  --num_process_per_node 1 \
+  --num_process_per_node 2 \
   --contrast1 T1 --contrast2 T2 \
   --use_ema \
   --save_content \
