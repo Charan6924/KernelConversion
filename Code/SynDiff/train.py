@@ -15,7 +15,7 @@ import torchvision.transforms as transforms
 #from dataset import CreateDatasetSynthesis
 from PSDDataset import PSDDataset
 
-from torch.multiprocessing import Process
+import torch.multiprocessing as mp
 import torch.distributed as dist
 import shutil
 from skimage.metrics import peak_signal_noise_ratio as psnr
@@ -707,6 +707,7 @@ if __name__ == '__main__':
     size = args.num_process_per_node
 
     if size > 1:
+        mp.set_start_method('spawn', force=True)
         processes = []
         for rank in range(size):
             args.local_rank = rank
@@ -714,7 +715,7 @@ if __name__ == '__main__':
             global_size = args.num_proc_node * args.num_process_per_node
             args.global_rank = global_rank
             print('Node rank %d, local proc %d, global proc %d' % (args.node_rank, rank, global_rank))
-            p = Process(target=init_processes, args=(global_rank, global_size, train_syndiff, args))
+            p = mp.Process(target=init_processes, args=(global_rank, global_size, train_syndiff, args))
             p.start()
             processes.append(p)
 
