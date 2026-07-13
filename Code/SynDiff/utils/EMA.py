@@ -61,6 +61,9 @@ class EMA(Optimizer):
 
         return retval
 
+    def state_dict(self):
+        return self.optimizer.state_dict()
+
     def load_state_dict(self, state_dict):
         super(EMA, self).load_state_dict(state_dict)
         # load_state_dict loads the data to self.state and self.param_groups. We need to pass this data to
