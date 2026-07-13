@@ -24,6 +24,18 @@ echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
 # Run training
-uv run train.py --input_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/ --output_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/train_output_diffusion/ --exp my_experiment
+uv run train.py \
+  --input_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/ \
+  --output_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/train_output_diffusion/ \
+  --exp my_experiment \
+  --batch_size 1 \
+  --image_size 512 \
+  --num_epoch 500 \
+  --num_process_per_node 1 \
+  --contrast1 T1 --contrast2 T2 \
+  --use_ema \
+  --save_content \
+  --save_content_every 10 \
+  --save_ckpt_every 10
 
 echo "End time: $(date)"

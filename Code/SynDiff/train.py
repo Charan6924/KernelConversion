@@ -379,6 +379,7 @@ def train_syndiff(rank, gpu, args):
     torch.autograd.set_detect_anomaly(True)
 
     for epoch in range(init_epoch, args.num_epoch+1):
+        print(epoch)
         train_sampler.set_epoch(epoch)
        
         for iteration, (x1, x2) in enumerate(data_loader):
