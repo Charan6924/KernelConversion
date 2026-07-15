@@ -1,5 +1,6 @@
 import torch.utils.data
-import numpy as np, h5py
+import numpy as np
+import h5py
 import random
 
 

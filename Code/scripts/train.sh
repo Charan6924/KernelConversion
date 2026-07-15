@@ -23,8 +23,16 @@ echo "Node: $SLURM_NODELIST"
 echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
+python -c "from utils.op import upfirdn2d; print('upfirdn2d compiled')"                                                                                                                             
+python -c "from utils.op import fused_bias_act; print('fused_bias_act compiled')"     
+
+export NCCL_DEBUG=INFO                    # see where it hangs                                                                                                                                      
+export NCCL_ASYNC_ERROR_HANDLING=1        # don't hang forever                                                                                                                                      
+export NCCL_SOCKET_IFNAME=^docker,lo      # override if needed (try ib0, eth0, etc.)                                                                                                                
+export NCCL_IB_DISABLE=1                  # disable InfiniBand if no IB available      
+
 # Run training (DDP with 2 GPUs)
-uv run train.py \
+torchrun --nproc_per_node=2 train.py \
   --input_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/ \
   --output_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/train_output_diffusion/ \
   --exp my_experiment \
