@@ -1,21 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=cycle_gan_train
+#SBATCH --job-name=ldm_ct_train
 #SBATCH --partition=cgpudlw
 #SBATCH --nodelist=cgput004
 #SBATCH --gres=gpu:2
-#SBATCH --cpus-per-task=6    
-#SBATCH --mem=64G           
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=64G
 #SBATCH --time=72:00:00
 #SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
 #SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
 
-# Activate virtual environment 
+# Activate virtual environment
 source /home/cxv166/PhantomTesting/.venv/bin/activate
-module load CUDA/12.8.0 
+module load CUDA/12.8.0
 module load GCC/12.3.0
 
 # Navigate to code directory
-cd /home/cxv166/PhantomTesting/Code/SynDiff
+cd /home/cxv166/PhantomTesting/Code/latent-diffusion
 
 # Print job info
 echo "Job ID: $SLURM_JOB_ID"
@@ -23,27 +23,16 @@ echo "Node: $SLURM_NODELIST"
 echo "GPU: $CUDA_VISIBLE_DEVICES"
 echo "Start time: $(date)"
 
-python -c "from utils.op import upfirdn2d; print('upfirdn2d compiled')"                                                                                                                             
-python -c "from utils.op import fused_bias_act; print('fused_bias_act compiled')"     
+export NCCL_DEBUG=INFO
+export NCCL_ASYNC_ERROR_HANDLING=1
+export NCCL_SOCKET_IFNAME=^docker,lo
+export NCCL_IB_DISABLE=1
 
-export NCCL_DEBUG=INFO                    # see where it hangs                                                                                                                                      
-export NCCL_ASYNC_ERROR_HANDLING=1        # don't hang forever                                                                                                                                      
-export NCCL_SOCKET_IFNAME=^docker,lo      # override if needed (try ib0, eth0, etc.)                                                                                                                
-export NCCL_IB_DISABLE=1                  # disable InfiniBand if no IB available      
-
-# Run training (DDP with 2 GPUs)
-torchrun --nproc_per_node=2 train.py \
-  --input_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/ \
-  --output_path /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/train_output_diffusion/ \
-  --exp my_experiment \
-  --batch_size 1 \
-  --image_size 512 \
-  --num_epoch 500 \
-  --num_process_per_node 2 \
-  --contrast1 T1 --contrast2 T2 \
-  --use_ema \
-  --save_content \
-  --save_content_every 10 \
-  --save_ckpt_every 10
+# Run training (PyTorch Lightning DDP with 2 GPUs, launched directly — no torchrun)
+python main.py \
+    --base configs/latent-diffusion/ct_smooth2sharp_f8.yaml \
+    -t \
+    --gpus 0,1 \
+    --name ct_smooth2sharp
 
 echo "End time: $(date)"
