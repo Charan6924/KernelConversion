@@ -4,13 +4,14 @@
 #SBATCH --nodelist=cgput004
 #SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=6
-#SBATCH --mem=64G
+#SBATCH --mem=120G
 #SBATCH --time=72:00:00
 #SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
 #SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
 
 # Activate virtual environment
 source /home/cxv166/PhantomTesting/.venv/bin/activate
+export PYTHONPATH="/home/cxv166/PhantomTesting/Code/taming-transformers:$PYTHONPATH"
 module load CUDA/12.8.0
 module load GCC/12.3.0
 
@@ -29,10 +30,6 @@ export NCCL_SOCKET_IFNAME=^docker,lo
 export NCCL_IB_DISABLE=1
 
 # Run training (PyTorch Lightning DDP with 2 GPUs, launched directly — no torchrun)
-python main.py \
-    --base configs/latent-diffusion/ct_smooth2sharp_f8.yaml \
-    -t \
-    --gpus 0,1 \
-    --name ct_smooth2sharp
+CUDA_VISIBLE_DEVICES=0,1 python main.py --base configs/autoencoder/ct_autoencoder_f8.yaml -t --gpus 0,1
 
 echo "End time: $(date)"
