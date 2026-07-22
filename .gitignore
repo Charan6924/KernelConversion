@@ -40,3 +40,5 @@ Code/logs/
 
 # Generated NIfTI outputs
 Code/Code/
+Code/latent-diffusion/__pycache__/
+Code/latent-diffusion/logs/
