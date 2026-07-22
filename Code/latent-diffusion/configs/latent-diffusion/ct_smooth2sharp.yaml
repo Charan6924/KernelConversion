@@ -1,0 +1,91 @@
+model:
+  base_learning_rate: 1.0e-06
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  params:
+    linear_start: 0.0015
+    linear_end: 0.0195
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    first_stage_key: image
+    cond_stage_key: LR_image
+    image_size: 64
+    channels: 4
+    cond_stage_trainable: false
+    conditioning_key: concat
+    monitor: val/loss_simple_ema
+    unet_config:
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 64
+        in_channels: 8
+        out_channels: 4
+        model_channels: 192
+        attention_resolutions:
+        - 4
+        - 2
+        - 1
+        num_res_blocks: 2
+        channel_mult:
+        - 1
+        - 2
+        - 4
+        num_head_channels: 32
+    first_stage_config:
+      target: ldm.models.autoencoder.VQModelInterface
+      params:
+        embed_dim: 4
+        n_embed: 16384
+        ckpt_path: logs/<your_autoencoder_run>/checkpoints/last.ckpt
+        ddconfig:
+          double_z: false
+          z_channels: 4
+          resolution: 512
+          in_channels: 1
+          out_ch: 1
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions:
+          - 32
+          dropout: 0.0
+        lossconfig:
+          target: torch.nn.Identity
+    cond_stage_config: __is_first_stage__
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 8
+    num_workers: 8
+    wrap: false
+    train:
+      target: ldm.data.ct_pairs.CTPairedTrain
+      params:
+        root_dir: /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root
+        smooth_subdir: trainA
+        sharp_subdir: trainB
+        preload: true
+    validation:
+      target: ldm.data.ct_pairs.CTPairedValidation
+      params:
+        root_dir: /mnt/vstor/CSE_BME_DLW/cxv166/Data_Root
+        smooth_subdir: testA
+        sharp_subdir: testB
+        preload: true
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 2000
+        max_images: 8
+        increase_log_steps: False
+  trainer:
+    benchmark: True
+    accumulate_grad_batches: 4
