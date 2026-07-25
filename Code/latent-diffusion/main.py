@@ -261,10 +261,7 @@ class SetupCallback(Callback):
 
     # CHANGED: on_keyboard_interrupt was removed in PL 2.x, replaced by on_exception.
     def on_exception(self, trainer, pl_module, exception):
-        if trainer.global_rank == 0:
-            print("Summoning checkpoint.")
-            ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
-            trainer.save_checkpoint(ckpt_path)
+        print(f"Exception occurred on rank {trainer.global_rank}: {exception}")
 
     # CHANGED: on_pretrain_routine_start was removed in PL 2.x, replaced by on_fit_start.
     def on_fit_start(self, trainer, pl_module):
