@@ -362,8 +362,8 @@ def generate_images(I_smooth, I_sharp, filter_smooth2sharp, filter_sharp2smooth,
     I_generated_sharp  = torch.fft.ifft2(fft_generated_sharp_unshifted,  dim=(-2, -1)).real
     I_generated_smooth = torch.fft.ifft2(fft_generated_smooth_unshifted, dim=(-2, -1)).real
 
-    I_generated_sharp  = torch.clamp(I_generated_sharp,  0, 1)
-    I_generated_smooth = torch.clamp(I_generated_smooth, 0, 1)
+    #I_generated_sharp  = torch.clamp(I_generated_sharp,  0, 1)
+    #I_generated_smooth = torch.clamp(I_generated_smooth, 0, 1)
 
     return I_generated_sharp, I_generated_smooth
 

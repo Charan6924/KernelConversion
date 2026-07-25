@@ -4,7 +4,7 @@ srun -A dlw -p gpu --gres=gpu:1 --mem=16gb --constraint=gpu2h100 --pty bash
 srun -A dlw -p gpu --gres=gpu:1 --mem=64gb --constraint=gpu4090 --pty bash
 torchrun --nproc_per_node=4 ddpTrain.py
 torchrun --nproc_per_node=4 ddpTrainAdvaserial.py
-srun --jobid=3621256 --overlap --pty bash
+srun --jobid=3637539 --overlap --pty bash
 watch -n 0.1 nvidia-smi
 htop -u cxv166 
 CUDA_VISIBLE_DEVICES=0 python main.py --base configs/autoencoder/ct_autoencoder_f8.yaml -t --gpus 0,

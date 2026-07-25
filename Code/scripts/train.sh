@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=ldm_ct_train
+#SBATCH --job-name=ldm_ct_stage2
 #SBATCH --partition=cgpudlw
 #SBATCH --nodelist=cgput004
-#SBATCH --gres=gpu:2
-#SBATCH --cpus-per-task=6
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=150G
 #SBATCH --time=72:00:00
 #SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
@@ -29,7 +29,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_SOCKET_IFNAME=^docker,lo
 export NCCL_IB_DISABLE=1
 
-# Run training (PyTorch Lightning DDP with 2 GPUs, launched directly — no torchrun)
-CUDA_VISIBLE_DEVICES=0,1 python main.py --base configs/autoencoder/ct_autoencoder_f8.yaml -t --gpus 0,1
+# Run stage-2 training (conditional LDM: smooth -> sharp CT)
+python main.py --base configs/latent-diffusion/ct_smooth2sharp_f8.yaml -t --gpus 0,1,2,3
 
 echo "End time: $(date)"
