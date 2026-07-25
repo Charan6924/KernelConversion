@@ -684,10 +684,7 @@ if __name__ == "__main__":
 
 
         def melk(*args, **kwargs):
-            if trainer.global_rank == 0:
-                print("Summoning checkpoint.")
-                ckpt_path = os.path.join(ckptdir, "last.ckpt")
-                trainer.save_checkpoint(ckpt_path)
+            print(f"melk() called on rank {trainer.global_rank} (checkpoint save disabled for debugging)", flush=True)
 
 
         def divein(*args, **kwargs):
@@ -705,8 +702,10 @@ if __name__ == "__main__":
         if opt.train:
             try:
                 trainer.fit(model, data)
-            except Exception:
-                melk()
+            except Exception as e:
+                print(f"Exception occurred on rank {trainer.global_rank}: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
                 raise
         if not opt.no_test and not trainer.interrupted:
             trainer.test(model, data)
