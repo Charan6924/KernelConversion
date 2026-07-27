@@ -117,12 +117,9 @@ class CTPairedBase(Dataset):
         return slice_data
 
     def _get_volume(self, path):
-        if path in self.volume_cache:
+        if self.preload:
             return self.volume_cache[path]
-        vol = nib.load(path).get_fdata()  # type: ignore
-        if not self.preload:
-            self.volume_cache[path] = vol
-        return vol
+        return nib.load(path).get_fdata().astype(np.float32)  # no caching at all
 
     def _normalize(self, img):
         # HU clip -> [-1, 1]
@@ -188,12 +185,9 @@ class CTAutoencoderBase(Dataset):
         return index
 
     def _get_volume(self, path):
-        if path in self.volume_cache:
+        if self.preload:
             return self.volume_cache[path]
-        vol = nib.load(path).get_fdata().astype(np.float32)  # type: ignore
-        if not self.preload:
-            self.volume_cache[path] = vol
-        return vol
+        return nib.load(path).get_fdata().astype(np.float32)  # no caching at all
 
     def _normalize(self, img):
         img = np.clip(img, self.hu_min, self.hu_max)
