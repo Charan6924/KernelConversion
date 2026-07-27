@@ -4,7 +4,7 @@
 #SBATCH --nodelist=cgput004
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=200G
+#SBATCH --mem=240G
 #SBATCH --time=72:00:00
 #SBATCH --output=/home/cxv166/PhantomTesting/logs/%j_train.out
 #SBATCH --error=/home/cxv166/PhantomTesting/logs/%j_train.err
