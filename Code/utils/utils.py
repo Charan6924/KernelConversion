@@ -498,7 +498,7 @@ def spline_to_kernel(smooth_curve, sharp_curve, grid_size=512):
     otf_sharp  = radial_to_2d(sharp_curve,  grid_size).clamp(min=1e-6)
     return otf_smooth, otf_sharp
 
-def radial_to_2d(radial_profile, grid_size=512,pixel_spacing_mm = 0.44921875):
+def radial_to_2d(radial_profile, grid_size=512):
     """
     Convert a 1D mtf into a 2d 512x512 grid that represents the 2d covolutional kernel
 
@@ -513,14 +513,10 @@ def radial_to_2d(radial_profile, grid_size=512,pixel_spacing_mm = 0.44921875):
     y = torch.arange(grid_size, device=device, dtype=torch.float32) - center
     x = torch.arange(grid_size, device=device, dtype=torch.float32) - center
     y_grid, x_grid = torch.meshgrid(y, x, indexing='ij')
-    nyquist = 1/(2*pixel_spacing_mm)
-    
 
     distance = torch.sqrt(x_grid**2 + y_grid**2)
-    max_distance = center
-    freq = (distance / center) * nyquist
-    mtf_max_freq = 2.19  
-    t = freq / mtf_max_freq  # [0, 1] maps to [0, 2.19 lp/mm]
+    max_distance = center * np.sqrt(2)
+    t = distance / max_distance
     t = torch.clamp(t, 0, 1)
 
     profile = radial_profile.view(batch_size, 1, 1, n_points)
