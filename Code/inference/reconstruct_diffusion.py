@@ -32,6 +32,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "latent-diffusion"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "taming-transformers"))
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
