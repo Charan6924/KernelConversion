@@ -112,10 +112,20 @@ def load_model(config_path, ckpt_path, device):
 
 
 def find_config(ckpt_path):
-    """Training config saved alongside the logs (logdir/configs/*.yaml)."""
+    """Full training config saved alongside the logs (logdir/configs/*-project.yaml).
+
+    The logdir also contains a *-lightning.yaml with no model section,
+    so only configs that define a `model` key are considered.
+    """
     logdir = os.path.dirname(os.path.dirname(ckpt_path))
     configs = sorted(glob.glob(os.path.join(logdir, "configs", "*.yaml")))
-    return configs[0] if configs else None
+    for c in configs:
+        try:
+            if "model" in OmegaConf.load(c):
+                return c
+        except Exception:
+            continue
+    return None
 
 
 # ── data helpers ─────────────────────────────────────────────────────────────
