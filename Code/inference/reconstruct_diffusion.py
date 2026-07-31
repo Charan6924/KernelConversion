@@ -28,7 +28,7 @@ import glob
 import numpy as np
 import nibabel as nib
 import torch
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "latent-diffusion"))
@@ -84,7 +84,7 @@ def resolve_ckpt_paths(config, config_path):
     """
     config_dir = os.path.dirname(config_path)
     for k, v in config.items():
-        if isinstance(v, dict):
+        if isinstance(v, DictConfig):
             resolve_ckpt_paths(v, config_path)
         elif k == "ckpt_path" and isinstance(v, str) and v and not os.path.exists(v):
             resolved = None
