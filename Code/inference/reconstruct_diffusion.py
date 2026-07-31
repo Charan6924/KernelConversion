@@ -322,7 +322,7 @@ def main():
         print(f"Loading {name} model from {ckpt} ...")
         model, config = load_model(config_path, ckpt, device)
         print(f"  Latent diffusion: {model.channels}ch @ {model.image_size}×{model.image_size}")
-        print(f"  Conditioning: {model.conditioning_key}")
+        print(f"  Conditioning: {model.model.conditioning_key}")
         fs = config.model.params.first_stage_config.params.get("ckpt_path")
         cs = config.model.params.cond_stage_config.params.get("ckpt_path")
         print(f"  First stage ckpt: {fs or 'from diffusion ckpt'}")
