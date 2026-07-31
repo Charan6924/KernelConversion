@@ -73,22 +73,30 @@ def denormalize(img):
 
 
 def resolve_ckpt_paths(config, config_path):
-    """Absolutize relative ckpt_path entries in the config.
+    """Resolve ckpt_path entries in the config.
 
     LDM stores autoencoder paths relative to the training CWD
-    (Code/latent-diffusion/), so fall back to that root when a path
-    does not resolve from the current working directory.
+    (Code/latent-diffusion/), so try that root when a path does not
+    resolve from the current working directory. Paths that still do
+    not exist are nulled — the diffusion checkpoint is self-contained
+    (it stores the frozen autoencoder weights), so instantiation can
+    rely on load_state_dict for those.
     """
     config_dir = os.path.dirname(config_path)
     for k, v in config.items():
         if isinstance(v, dict):
             resolve_ckpt_paths(v, config_path)
-        elif k == "ckpt_path" and isinstance(v, str) and v and not os.path.isabs(v) and not os.path.exists(v):
-            for base in (LDM_ROOT, config_dir):
-                candidate = os.path.join(base, v)
-                if os.path.exists(candidate):
-                    config[k] = candidate
-                    break
+        elif k == "ckpt_path" and isinstance(v, str) and v and not os.path.exists(v):
+            resolved = None
+            if not os.path.isabs(v):
+                for base in (LDM_ROOT, config_dir):
+                    candidate = os.path.join(base, v)
+                    if os.path.exists(candidate):
+                        resolved = candidate
+                        break
+            if resolved is None:
+                print(f"  WARNING: {v} not found — using weights from the diffusion checkpoint")
+            config[k] = resolved
 
 
 def load_model(config_path, ckpt_path, device):
@@ -315,8 +323,10 @@ def main():
         model, config = load_model(config_path, ckpt, device)
         print(f"  Latent diffusion: {model.channels}ch @ {model.image_size}×{model.image_size}")
         print(f"  Conditioning: {model.conditioning_key}")
-        print(f"  First stage ckpt: {config.model.params.first_stage_config.params.get('ckpt_path', 'N/A')}")
-        print(f"  Cond stage ckpt:  {config.model.params.cond_stage_config.params.get('ckpt_path', 'N/A')}")
+        fs = config.model.params.first_stage_config.params.get("ckpt_path")
+        cs = config.model.params.cond_stage_config.params.get("ckpt_path")
+        print(f"  First stage ckpt: {fs or 'from diffusion ckpt'}")
+        print(f"  Cond stage ckpt:  {cs or 'from diffusion ckpt'}")
         return model
 
     model_s2s = load_side("smooth→sharp", args.ckpt_smooth2sharp, args.config_smooth2sharp)
