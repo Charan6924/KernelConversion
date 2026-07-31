@@ -1,22 +1,24 @@
-"""Latent Diffusion inference for CT kernel conversion (smooth → sharp).
+"""Latent Diffusion inference for CT kernel conversion (both directions).
+
+Two independently trained diffusion models are loaded and both conversions
+run on every volume pair:
+  * smooth → sharp  (ct_smooth2sharp_f8)
+  * sharp → smooth  (ct_sharp2smooth_f8)
+
+Outputs are saved to `testB_fake/` (sharp generated from smooth) and
+`testA_fake/` (smooth generated from sharp) under the output directory.
 
 Usage:
-    # Run on paired volumes in testA/ (smooth) and testB/ (sharp)
+    # Both directions on paired volumes in testA/ (smooth) and testB/ (sharp)
     uv run python Code/inference/reconstruct_diffusion.py \
-        --ckpt logs/2026-07-28T12-00-00_ct_smooth2sharp_f8/checkpoints/last.ckpt \
-        --config Code/latent-diffusion/configs/latent-diffusion/ct_smooth2sharp_f8.yaml \
         --data_root /path/to/Data_Root \
         --output_dir /path/to/output
 
-    # Run on a single volume pair
+    # Single direction only (omit the other --ckpt)
     uv run python Code/inference/reconstruct_diffusion.py \
-        --ckpt ... --config ... \
-        --input_smooth /path/to/smooth.nii.gz \
-        --input_sharp /path/to/sharp.nii.gz \
+        --ckpt_sharp2smooth /path/to/sharp2smooth/last.ckpt \
+        --data_root /path/to/Data_Root \
         --output_dir /path/to/output
-
-Note: The model was trained for smooth → sharp conversion only.
-For the reverse direction (sharp → smooth), see the --reverse flag.
 """
 
 import os
@@ -37,6 +39,15 @@ from ldm.models.diffusion.ddim import DDIMSampler
 # ── constants ────────────────────────────────────────────────────────────────
 
 HU_MIN, HU_MAX = -1000, 3000
+
+LDM_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "latent-diffusion"))
+
+# Trained models (HPC)
+LOGS = "/home/cxv166/PhantomTesting/Code/latent-diffusion/logs"
+CKPT_SMOOTH2SHARP = os.path.join(
+    LOGS, "2026-07-27T01-03-26_ct_smooth2sharp_f8", "checkpoints", "last.ckpt")
+CKPT_SHARP2SMOOTH = os.path.join(
+    LOGS, "2026-07-29T08-42-14_ct_sharp2smooth_f8", "checkpoints", "last.ckpt")
 
 
 # ── normalisation helpers (match training) ───────────────────────────────────
@@ -60,10 +71,30 @@ def denormalize(img):
 # ── model loading ────────────────────────────────────────────────────────────
 
 
+def resolve_ckpt_paths(config, config_path):
+    """Absolutize relative ckpt_path entries in the config.
+
+    LDM stores autoencoder paths relative to the training CWD
+    (Code/latent-diffusion/), so fall back to that root when a path
+    does not resolve from the current working directory.
+    """
+    config_dir = os.path.dirname(config_path)
+    for k, v in config.items():
+        if isinstance(v, dict):
+            resolve_ckpt_paths(v, config_path)
+        elif k == "ckpt_path" and isinstance(v, str) and v and not os.path.isabs(v) and not os.path.exists(v):
+            for base in (LDM_ROOT, config_dir):
+                candidate = os.path.join(base, v)
+                if os.path.exists(candidate):
+                    config[k] = candidate
+                    break
+
+
 def load_model(config_path, ckpt_path, device):
     """Instantiate LatentDiffusion from config, load checkpoint, freeze
     both first-stage (VQModelInterface) and cond-stage encoders."""
     config = OmegaConf.load(config_path)
+    resolve_ckpt_paths(config, config_path)
     model = instantiate_from_config(config.model)
 
     sd = torch.load(ckpt_path, map_location="cpu")
@@ -78,6 +109,13 @@ def load_model(config_path, ckpt_path, device):
     model.to(device)
     model.eval()
     return model, config
+
+
+def find_config(ckpt_path):
+    """Training config saved alongside the logs (logdir/configs/*.yaml)."""
+    logdir = os.path.dirname(os.path.dirname(ckpt_path))
+    configs = sorted(glob.glob(os.path.join(logdir, "configs", "*.yaml")))
+    return configs[0] if configs else None
 
 
 # ── data helpers ─────────────────────────────────────────────────────────────
@@ -164,50 +202,26 @@ def sample_ddim(model, cond, ddim_steps=50, ddim_eta=0.0):
 # ── volume processing ────────────────────────────────────────────────────────
 
 
-def process_smooth_to_sharp(smooth_vol, model, device, ddim_steps=50, ddim_eta=0.0):
-    """Process a smooth volume slice-by-slice → generated sharp volume.
+def convert_volume(vol, model, device, ddim_steps=50, ddim_eta=0.0):
+    """Convert a volume slice-by-slice through the latent diffusion model.
 
-    Returns generated sharp volume in HU space.
+    The input volume is conditioned on, and the generated volume is
+    returned in HU space. Works for either direction — the direction is
+    determined by which model is passed in.
     """
-    n_slices = smooth_vol.shape[2]
+    n_slices = vol.shape[2]
     start = int(n_slices * 0.1)
     end = int(n_slices * 0.9)
 
-    vol_out = np.full_like(smooth_vol, HU_MIN, dtype=np.float32)
+    vol_out = np.full_like(vol, HU_MIN, dtype=np.float32)
 
     for k in tqdm(range(start, end), desc="  Slices", leave=False):
-        slice_1ch = normalize(smooth_vol[:, :, k].copy())    # (H, W)
+        slice_1ch = normalize(vol[:, :, k].copy())    # (H, W)
         x = torch.from_numpy(slice_1ch).float()[None, None, ...].to(device)  # (1, 1, H, W)
 
-        c = encode_to_latent(model, x, use_cond_stage=True)  # smooth → latent
-        z = sample_ddim(model, c, ddim_steps, ddim_eta)       # denoise → sharp latent
+        c = encode_to_latent(model, x, use_cond_stage=True)  # input → latent
+        z = sample_ddim(model, c, ddim_steps, ddim_eta)       # denoise → target latent
         out = decode_from_latent(model, z)                    # latent → pixel
-        vol_out[:, :, k] = denormalize(out.cpu().numpy().squeeze())
-
-    return vol_out
-
-
-def process_sharp_to_smooth(sharp_vol, model, device, ddim_steps=50, ddim_eta=0.0):
-    """Attempt sharp → smooth conversion using the model in reverse.
-
-    The model was trained smooth→sharp, so this is an approximation.
-    It conditions on the sharp latent and samples — the prior bias toward
-    sharpness means results will be less smooth than desired.
-    """
-    n_slices = sharp_vol.shape[2]
-    start = int(n_slices * 0.1)
-    end = int(n_slices * 0.9)
-
-    vol_out = np.full_like(sharp_vol, HU_MIN, dtype=np.float32)
-
-    for k in tqdm(range(start, end), desc="  Slices (reverse)", leave=False):
-        slice_1ch = normalize(sharp_vol[:, :, k].copy())
-        x = torch.from_numpy(slice_1ch).float()[None, None, ...].to(device)
-
-        # Use sharp as conditioning — this is *not* the trained direction
-        c = encode_to_latent(model, x, use_cond_stage=True)
-        z = sample_ddim(model, c, ddim_steps, ddim_eta)
-        out = decode_from_latent(model, z)
         vol_out[:, :, k] = denormalize(out.cpu().numpy().squeeze())
 
     return vol_out
@@ -249,10 +263,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="Latent Diffusion inference for CT kernel conversion"
     )
-    parser.add_argument("--ckpt", required=True,
-                        help="Path to diffusion model checkpoint (.ckpt)")
-    parser.add_argument("--config", required=True,
-                        help="Path to ct_smooth2sharp_f8.yaml")
+    parser.add_argument("--ckpt_smooth2sharp", default=CKPT_SMOOTH2SHARP,
+                        help="smooth→sharp diffusion checkpoint (default: trained model)")
+    parser.add_argument("--ckpt_sharp2smooth", default=CKPT_SHARP2SMOOTH,
+                        help="sharp→smooth diffusion checkpoint (default: trained model)")
+    parser.add_argument("--config_smooth2sharp", default=None,
+                        help="smooth→sharp config yaml (default: auto-discovered from logdir)")
+    parser.add_argument("--config_sharp2smooth", default=None,
+                        help="sharp→smooth config yaml (default: auto-discovered from logdir)")
     parser.add_argument("--data_root", default=None,
                         help="Root dir containing testA/ (smooth) and testB/ (sharp)")
     parser.add_argument("--input_smooth", default=None,
@@ -265,22 +283,35 @@ def main():
                         help="DDIM sampling steps (default: 50, try 100–200 for quality)")
     parser.add_argument("--ddim_eta", type=float, default=0.0,
                         help="DDIM stochasticity (0 = deterministic, default: 0)")
-    parser.add_argument("--reverse", action="store_true",
-                        help="Also attempt sharp→smooth (model wasn't trained for this)")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
     device = torch.device(args.device)
     print(f"Device: {device}")
 
-    # ── load ──────────────────────────────────────────────────────────────
-    print(f"Loading model from {args.ckpt} ...")
-    model, config = load_model(args.config, args.ckpt, device)
-    print(f"  Latent diffusion: {model.channels}ch @ {model.image_size}×{model.image_size}")
-    print(f"  Conditioning: {model.conditioning_key}")
-    print(f"  First stage ckpt: {config.model.params.first_stage_config.params.get('ckpt_path', 'N/A')}")
-    print(f"  Cond stage ckpt:  {config.model.params.cond_stage_config.params.get('ckpt_path', 'N/A')}")
-    model.eval()
+    # ── load models ─────────────────────────────────────────────────────
+    def load_side(name, ckpt, config_path):
+        if not ckpt or not os.path.exists(ckpt):
+            print(f"Skipping {name}: checkpoint not found ({ckpt})")
+            return None
+        if not config_path:
+            config_path = find_config(ckpt)
+        if not config_path or not os.path.exists(config_path):
+            print(f"Skipping {name}: config not found for {ckpt}")
+            return None
+
+        print(f"Loading {name} model from {ckpt} ...")
+        model, config = load_model(config_path, ckpt, device)
+        print(f"  Latent diffusion: {model.channels}ch @ {model.image_size}×{model.image_size}")
+        print(f"  Conditioning: {model.conditioning_key}")
+        print(f"  First stage ckpt: {config.model.params.first_stage_config.params.get('ckpt_path', 'N/A')}")
+        print(f"  Cond stage ckpt:  {config.model.params.cond_stage_config.params.get('ckpt_path', 'N/A')}")
+        return model
+
+    model_s2s = load_side("smooth→sharp", args.ckpt_smooth2sharp, args.config_smooth2sharp)
+    model_sh2sm = load_side("sharp→smooth", args.ckpt_sharp2smooth, args.config_sharp2smooth)
+    if model_s2s is None and model_sh2sm is None:
+        sys.exit("No models loaded — nothing to run.")
 
     # ── data ──────────────────────────────────────────────────────────────
     volume_pairs = []
@@ -302,16 +333,15 @@ def main():
 
         results = {}
 
-        # Trained direction
-        print("  Smooth → Sharp (trained direction):")
-        results["sharp_from_smooth"] = process_smooth_to_sharp(
-            smooth_vol, model, device, args.ddim_steps, args.ddim_eta)
+        if model_s2s is not None:
+            print("  Smooth → Sharp:")
+            results["sharp_from_smooth"] = convert_volume(
+                smooth_vol, model_s2s, device, args.ddim_steps, args.ddim_eta)
 
-        # Reverse direction (optional, experimental)
-        if args.reverse:
-            print("  Sharp → Smooth (experimental — not trained for this):")
-            results["smooth_from_sharp"] = process_sharp_to_smooth(
-                sharp_vol, model, device, args.ddim_steps, args.ddim_eta)
+        if model_sh2sm is not None:
+            print("  Sharp → Smooth:")
+            results["smooth_from_sharp"] = convert_volume(
+                sharp_vol, model_sh2sm, device, args.ddim_steps, args.ddim_eta)
 
         save_results(results, vid,
                      os.path.basename(smooth_path), os.path.basename(sharp_path),
