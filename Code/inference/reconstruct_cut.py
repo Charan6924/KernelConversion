@@ -116,11 +116,12 @@ output_dir = r"/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/reconstructions_cut"
 os.makedirs(output_dir, exist_ok=True)
 
 
+
+
 def extract_kernel_name(filename):
     if '_filter_' in filename:
         return filename.split('_filter_')[1].split('.')[0]
     return 'unknown'
-
 
 def reconstruct_volume(sample, model_s2h, model_h2s, device, output_dir):
     data_smooth = sample['smooth_volume']
@@ -175,9 +176,11 @@ def reconstruct_volume(sample, model_s2h, model_h2s, device, output_dir):
     print(f'Saved: {os.path.basename(smooth_output_path)}, {os.path.basename(sharp_output_path)}')
 
 
-for idx in range(len(dataset)):
-    print(f'\nProcessing volume {idx+1}/{len(dataset)}')
-    sample = dataset[idx]
-    reconstruct_volume(sample, model_s2h, model_h2s, device='cuda', output_dir=output_dir)
+# for idx in range(len(dataset)):
+#     print(f'\nProcessing volume {idx+1}/{len(dataset)}')
+#     sample = dataset[idx]
+#     reconstruct_volume(sample, model_s2h, model_h2s, device='cuda', output_dir=output_dir)
 
-print(f'\nDone! All files saved to: {output_dir}')
+# print(f'\nDone! All files saved to: {output_dir}')
+
+
