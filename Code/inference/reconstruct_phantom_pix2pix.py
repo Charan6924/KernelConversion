@@ -141,8 +141,6 @@ def reconstruct_slice_dicom(sharp_dir, smooth_dir, sharp_kernel_name, smooth_ker
     I_smooth_tensor = torch.from_numpy(norm_smooth).float().unsqueeze(0).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        # A = sharp (S2030) -> AtoB processes 2030
-        # B = smooth (S2050) -> BtoA processes 2050
         data = {'A': I_sharp_tensor, 'B': I_smooth_tensor, 'A_paths': '', 'B_paths': ''}
         model.set_input(data)
         model.forward()
