@@ -69,7 +69,7 @@ mask_paths = ["/home/cxv166/PhantomTesting/Code/masks/Mask_LD.tif",
               "/home/cxv166/PhantomTesting/Code/masks/Mask_LU.tif",
               "/home/cxv166/PhantomTesting/Code/masks/Mask_RU.tif"]
 
-mask_names = ['LD', 'RD', 'LU', 'RU']
+mask_names = ['LD', 'Air', 'LU', 'Phantom']
 
 masks = [tifffile.imread(p) for p in mask_paths]
 
@@ -166,7 +166,6 @@ ds_cyclegan, arr_cyclegan = load_and_normalize_dicom(cyclegan_reconstructed_path
 cyclegan_reconstructed_results = compute_region_stats(
     arr_cyclegan, masks, mask_names, label='CycleGan Reconstructed'
 )
-
 plot_dir = '/home/cxv166/PhantomTesting/Code/plots'
 os.makedirs(plot_dir, exist_ok=True)
 
@@ -206,9 +205,10 @@ ax.set_xlabel('Mask')
 ax.set_ylabel('Mean HU (\u00b1 std)')
 ax.set_title('Mean HU with Std Error, by Mask and Method')
 ax.axhline(0, color='black', linewidth=0.8)
-ax.legend(loc='upper right', fontsize=9)
+ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize=9, borderaxespad=0)
 
 fig.tight_layout()
+fig.subplots_adjust(right=0.78)  # make room for the legend outside the axes
 out_path = os.path.join(plot_dir, 'all_masks_mean_std_comparison.png')
 fig.savefig(out_path, dpi=150)
 plt.close(fig)
