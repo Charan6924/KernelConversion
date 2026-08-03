@@ -88,7 +88,7 @@ SMOOTH_FILENAME = 'I20'  # file inside S2050 (smooth_dir)
 VOLUME_PAIRS = [
     {
         'volume_id': 'S65840_S2030',
-        'sharp_dir': r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2030',
+        'sharp_dir': r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2040',
         'smooth_dir': r'/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2050',
         'sharp_kernel_name': 'sharp',
         'smooth_kernel_name': 'smooth',

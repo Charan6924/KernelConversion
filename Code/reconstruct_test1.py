@@ -82,11 +82,11 @@ def plot_filter_profiles(filter1to2, filter2to1, save_path=None):
         print(f"Filter profile plot saved to {save_path}")
     plt.show()
 
-mtf_c = loadmat('/home/cxv166/PhantomTesting/MTF_Results_Output/I20_Kernel_D_MTF_Results_mat.mat')
-mtf_d = loadmat('/home/cxv166/PhantomTesting/MTF_Results_Output/I20_Kernel_YB_MTF_Results_mat.mat')
+mtf_c = loadmat('/home/cxv166/PhantomTesting/MTF_Results_Output/I20_Kernel_C_MTF_Results_mat.mat')
+mtf_d = loadmat('/home/cxv166/PhantomTesting/MTF_Results_Output/I20_Kernel_YA_MTF_Results_mat.mat')
 
-ds_c = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2030/I20')  # D (sharp)
-ds_d = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2050/I20')  # YB (smooth)
+ds_c = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2020/I20')  # C (sharp)
+ds_d = pydicom.dcmread('/mnt/vstor/CSE_BME_DLW/cxv166/Data_Root/kernels/S65840/S2040/I20')  # YB (smooth)
 
 results = mtf_c['results']
 r = results[0, 0]
@@ -119,8 +119,11 @@ mtf_axis_d = torch.from_numpy(mtf_axis_d)
 
 kernel_c, kernel_d = spline_to_kernel(mtf_val_c, mtf_val_d)
 
-filterCtoD = (kernel_d / (kernel_c + 1e-10)).to('cuda')
-filterDtoC = (kernel_c / (kernel_d + 1e-10)).to('cuda')
+lambda_for = 1e-10 * kernel_d.max().item()
+lambda_rev = 1e-10 * kernel_c.max().item()
+
+filterCtoD = (kernel_d * kernel_c/ (kernel_c**2 + lambda_rev)).to('cuda')
+filterDtoC = (kernel_c * kernel_d/ (kernel_d**2 + lambda_for)).to('cuda')
 
 plot_filter_profiles(filterCtoD,filterDtoC,save_path='/home/cxv166/PhantomTesting/Code/filter_profiles2.png')
 
@@ -138,10 +141,10 @@ print("image_c_generated range:", image_c_generated.min().item(), image_c_genera
 print("mean diff CtoD:", (image_d - image_d_generated).abs().mean().item())
 print("mean diff DtoC:", (image_c - image_c_generated).abs().mean().item())
 
-os.makedirs('/home/cxv166/PhantomTesting/Code/S2050_recon', exist_ok=True)
+os.makedirs('/home/cxv166/PhantomTesting/Code/S2040_recon', exist_ok=True)
 os.makedirs('/home/cxv166/PhantomTesting/Code/S2020_recon', exist_ok=True)
 
-save_to_dicom(ds_d, image_d_generated, '/home/cxv166/PhantomTesting/Code/S2050_recon/I20')
+save_to_dicom(ds_d, image_d_generated, '/home/cxv166/PhantomTesting/Code/S2040_recon/I20')
 save_to_dicom(ds_c, image_c_generated, '/home/cxv166/PhantomTesting/Code/S2020_recon/I20')
 
 psnr_CtoD, ssim_CtoD = compute_metrics(image_d, image_d_generated)  # real D vs synthetic D
